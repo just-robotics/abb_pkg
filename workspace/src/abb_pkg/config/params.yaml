@@ -1,0 +1,28 @@
+egm_node:
+  ros__parameters:
+
+    port: 6515
+
+    dlin: 50.0
+    radius: 200.0
+    dtheta: 0.005
+
+    x0: 750.0
+    y0: -500.0
+    z0: 700.
+
+    x1: 750.0
+    y1: 500.0
+
+    rx0: 180.0
+    ry0: 0.0
+    rz0: -90.
+
+    marker_frame: "world"
+    
+    ik_timeout: 0.005
+    ik_eps: 1e-5
+    
+    dq_limit: 5.
+    joint_tolerance: 4.
+    

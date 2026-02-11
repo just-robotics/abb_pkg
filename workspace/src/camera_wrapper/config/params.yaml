@@ -1,0 +1,11 @@
+pylon_camera:
+  ros__parameters:
+    frame_id: camera_link
+    camera_topic: image_raw
+
+    fps: 60
+    width: 1280
+    height: 1024
+
+    exposure_time: -1.
+    auto_exposure: true
