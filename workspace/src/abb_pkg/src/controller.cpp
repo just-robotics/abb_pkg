@@ -125,7 +125,7 @@ bool Controller::stepToward(const std::vector<double>& target,
 
 bool Controller::stepTowardJoints(const std::vector<double>& target_q,
                                   abb::egm::wrapper::Output& output,
-                                  double dq_limit, double tolerance) {
+                                  double /* dq_limit */, double tolerance) {
   const auto& fb = inputs_.feedback().robot().joints().position();
 
   const int nj = fb.values_size();

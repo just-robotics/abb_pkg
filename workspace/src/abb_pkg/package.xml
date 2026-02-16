@@ -14,6 +14,10 @@
   <depend>rclcpp</depend>
   <depend>visualization_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>action_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
   <depend>abb_libegm</depend>
   <depend>trac_ik_lib</depend>
   <depend>kdl_parser</depend>
@@ -25,4 +29,8 @@
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
 </package>

@@ -14,6 +14,11 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 find_package(abb_libegm REQUIRED)
 find_package(trac_ik_lib REQUIRED)
 find_package(kdl_parser REQUIRED)
@@ -21,6 +26,12 @@ find_package(kdl_parser REQUIRED)
 # ================= Include =================
 include_directories(
   include
+)
+
+# ================= Action =================
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "action/MoveToPose.action"
+  DEPENDENCIES geometry_msgs action_msgs
 )
 
 # ================= Executable =================
@@ -33,10 +44,19 @@ ament_target_dependencies(egm_node
   rclcpp
   visualization_msgs
   geometry_msgs
+  sensor_msgs
+  action_msgs
+  tf2
+  tf2_ros
   abb_libegm
   trac_ik_lib
   kdl_parser
 )
+
+# Link action typesupport
+rosidl_get_typesupport_target(cpp_typesupport_target
+  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(egm_node "${cpp_typesupport_target}")
 
 # ================= Install =================
 install(TARGETS
@@ -49,6 +69,7 @@ install(DIRECTORY
   config
   launch
   urdf
+  action
   DESTINATION share/${PROJECT_NAME}
 )
 

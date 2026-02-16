@@ -4,13 +4,13 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <stdexcept>
 #include <thread>
 
 EgmNode::EgmNode() : Node("egm_node") {
-  using std::placeholders::_1;
-
   abb_pkg::Controller::Config config;
   config.port = declare_parameter<int>("port", 6515);
   config.dlin = declare_parameter<double>("dlin", 50.0);
@@ -41,12 +41,17 @@ EgmNode::EgmNode() : Node("egm_node") {
     throw std::runtime_error("Missing URDF");
   }
 
-  RCLCPP_INFO(get_logger(), "Creating marker publisher...");
+  RCLCPP_INFO(get_logger(), "Creating publishers...");
   marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
       "egm_markers", rclcpp::SensorDataQoS());
+  ee_pose_pub_ =
+      create_publisher<geometry_msgs::msg::PoseStamped>("ee_pose", 10);
+  joint_state_pub_ =
+      create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
+  ping_pub_ = create_publisher<std_msgs::msg::Bool>("abb_ping", 10);
 
   RCLCPP_INFO(get_logger(), "Creating controller instance...");
-  config_ = config;  // Store config for later use
+  config_ = config;
   controller_ = std::make_unique<abb_pkg::Controller>(config);
 
   RCLCPP_INFO(get_logger(),
@@ -57,390 +62,81 @@ EgmNode::EgmNode() : Node("egm_node") {
   }
   RCLCPP_INFO(get_logger(), "Controller initialized successfully");
 
-  RCLCPP_INFO(get_logger(), "Creating subscription for figure_type topic...");
-  type_sub_ = this->create_subscription<std_msgs::msg::String>(
-      "figure_type", 10, std::bind(&EgmNode::typeCallback, this, _1));
+  RCLCPP_INFO(get_logger(), "Creating action server...");
+  action_server_ = rclcpp_action::create_server<abb_pkg::action::MoveToPose>(
+      this, "move_to_pose",
+      std::bind(&EgmNode::handleGoal, this, std::placeholders::_1,
+                std::placeholders::_2),
+      std::bind(&EgmNode::handleCancel, this, std::placeholders::_1),
+      std::bind(&EgmNode::executeAction, this, std::placeholders::_1));
 
-  RCLCPP_INFO(get_logger(), "Creating update timer...");
-  timer_ = create_wall_timer(std::chrono::milliseconds(4),
-                             std::bind(&EgmNode::update, this));
-
-  RCLCPP_INFO(get_logger(),
-              "Cancelling timer (will be started on trajectory command)...");
-  timer_->cancel();
+  RCLCPP_INFO(get_logger(), "Creating timers...");
+  update_timer_ = create_wall_timer(std::chrono::milliseconds(4),
+                                    std::bind(&EgmNode::update, this));
+  RCLCPP_INFO(get_logger(), "Update timer created and started (4ms interval)");
+  state_pub_timer_ = create_wall_timer(std::chrono::milliseconds(50),
+                                       std::bind(&EgmNode::publishState, this));
+  ping_timer_ = create_wall_timer(std::chrono::milliseconds(50),
+                                  std::bind(&EgmNode::ping, this));
 
   RCLCPP_INFO(get_logger(), "Initializing line strip marker...");
   initLineStrip();
 
   RCLCPP_INFO(get_logger(), "EGM node started (port=%d)", config.port);
-  RCLCPP_INFO(get_logger(),
-              "Waiting for robot connection and trajectory commands...");
-  RCLCPP_INFO(get_logger(),
-              "Try publishing to /figure_type topic: circle, line, "
-              "circle_joints, line_joints, or test_ik");
+  RCLCPP_INFO(get_logger(), "Action server ready at: move_to_pose");
+  RCLCPP_INFO(get_logger(), "Publishing state to: ee_pose, joint_states");
 }
 
-void EgmNode::typeCallback(const std_msgs::msg::String::SharedPtr msg) {
-  mode_ = ControlMode::CARTESIAN;
+rclcpp_action::GoalResponse EgmNode::handleGoal(
+    const rclcpp_action::GoalUUID& uuid,
+    std::shared_ptr<const abb_pkg::action::MoveToPose::Goal> goal) {
+  (void)uuid;
+  (void)goal;
+  RCLCPP_INFO(get_logger(), "Received goal request");
 
-  RCLCPP_INFO(get_logger(), "Received trajectory type: %s", msg->data.c_str());
-
-  if (msg->data == "circle") {
-    trajectory_ = controller_->generateCircle();
+  if (executing_action_.load()) {
+    RCLCPP_WARN(get_logger(),
+                "Already executing an action, rejecting new goal");
+    return rclcpp_action::GoalResponse::REJECT;
   }
 
-  else if (msg->data == "line") {
-    trajectory_ = controller_->generateLine();
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
+
+rclcpp_action::CancelResponse EgmNode::handleCancel(
+    const std::shared_ptr<
+        rclcpp_action::ServerGoalHandle<abb_pkg::action::MoveToPose>>
+        goal_handle) {
+  RCLCPP_INFO(get_logger(), "Received request to cancel goal");
+  (void)goal_handle;
+  cancel_requested_.store(true);
+  return rclcpp_action::CancelResponse::ACCEPT;
+}
+
+void EgmNode::executeAction(
+    const std::shared_ptr<
+        rclcpp_action::ServerGoalHandle<abb_pkg::action::MoveToPose>>
+        goal_handle) {
+  // IMPORTANT: This callback MUST return quickly.
+  // If we block here, the executor can't run timers, so update() won't send EGM
+  // commands.
+  RCLCPP_INFO(get_logger(), "Action accepted (non-blocking), setting target");
+
+  cancel_requested_.store(false);
+  executing_action_.store(true);
+  current_goal_handle_ = goal_handle;
+
+  const auto goal = goal_handle->get_goal();
+  {
+    std::lock_guard<std::mutex> lock(target_pose_mutex_);
+    target_pose_ = poseToTarget(goal->position, goal->orientation);
   }
 
-  else if (msg->data == "circle_joints") {
-    trajectory_ = controller_->generateCircle();
-    RCLCPP_INFO(get_logger(), "Generated circle trajectory with %zu points",
-                trajectory_.size());
-    if (!trajectory_.empty()) {
-      RCLCPP_INFO(
-          get_logger(),
-          "First point: x=%.1f, y=%.1f, z=%.1f, rx=%.1f, ry=%.1f, rz=%.1f",
-          trajectory_[0][0], trajectory_[0][1], trajectory_[0][2],
-          trajectory_[0][3], trajectory_[0][4], trajectory_[0][5]);
-      if (trajectory_.size() > 1) {
-        RCLCPP_INFO(
-            get_logger(),
-            "Second point: x=%.1f, y=%.1f, z=%.1f, rx=%.1f, ry=%.1f, rz=%.1f",
-            trajectory_[1][0], trajectory_[1][1], trajectory_[1][2],
-            trajectory_[1][3], trajectory_[1][4], trajectory_[1][5]);
-      }
-    }
-    // Try to update robot state before computing IK (multiple attempts)
-    RCLCPP_INFO(get_logger(),
-                "Attempting to update robot state for circle_joints...");
-    bool robot_updated = false;
-    for (int i = 0; i < 10; ++i) {
-      RCLCPP_INFO(get_logger(), "Update attempt %d/10...", i + 1);
-
-      // Run update() with timeout to avoid blocking
-      std::atomic<bool> update_result{false};
-      std::atomic<bool> update_complete{false};
-      std::thread update_thread([&]() {
-        update_result = controller_->update();
-        update_complete = true;
-      });
-
-      // Wait up to 100ms for update to complete
-      auto start = std::chrono::steady_clock::now();
-      while (!update_complete && (std::chrono::steady_clock::now() - start) <
-                                     std::chrono::milliseconds(100)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-
-      if (update_complete) {
-        update_thread.join();
-        if (update_result) {
-          robot_updated = true;
-          RCLCPP_INFO(get_logger(),
-                      "Robot state updated successfully (attempt %d)", i + 1);
-          break;
-        }
-        RCLCPP_INFO(get_logger(), "Update failed on attempt %d", i + 1);
-      } else {
-        RCLCPP_WARN(get_logger(),
-                    "Update timed out on attempt %d (waiting >100ms)", i + 1);
-        update_thread.detach();  // Detach thread that's still running
-      }
-
-      if (i < 9) {
-        RCLCPP_INFO(get_logger(), "Waiting 10ms before retry...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      } else {
-        RCLCPP_WARN(
-            get_logger(),
-            "All 10 update attempts failed - robot may not be connected");
-      }
-    }
-
-    // Print current robot position
-    if (robot_updated) {
-      const auto& inputs = controller_->getInputs();
-      const auto& cart_fb = inputs.feedback().robot().cartesian().pose();
-      const auto& joint_fb = inputs.feedback().robot().joints().position();
-
-      RCLCPP_INFO(get_logger(), "=== Current Robot Position ===");
-      RCLCPP_INFO(get_logger(),
-                  "Cartesian: x=%.1f mm, y=%.1f mm, z=%.1f mm, rx=%.1f deg, "
-                  "ry=%.1f deg, rz=%.1f deg",
-                  cart_fb.position().x(), cart_fb.position().y(),
-                  cart_fb.position().z(), cart_fb.euler().x(),
-                  cart_fb.euler().y(), cart_fb.euler().z());
-
-      RCLCPP_INFO(get_logger(), "Joints:");
-      for (int i = 0; i < joint_fb.values_size(); ++i) {
-        RCLCPP_INFO(get_logger(), "  Joint %d: %.2f deg", i + 1,
-                    joint_fb.values(i));
-      }
-      RCLCPP_INFO(get_logger(), "==============================");
-    } else {
-      RCLCPP_WARN(get_logger(),
-                  "Failed to update robot state - using last known position");
-    }
-
-    joint_traj_ = controller_->trajectoryToJoints(trajectory_);
-
-    std::vector<std::vector<double>> filtered_traj;
-    std::vector<std::vector<double>> filtered_joint;
-
-    for (size_t i = 0; i < joint_traj_.size(); ++i) {
-      if (!joint_traj_[i].empty()) {
-        filtered_traj.push_back(trajectory_[i]);
-        filtered_joint.push_back(joint_traj_[i]);
-      } else {
-        RCLCPP_WARN(get_logger(), "IK failed at point %zu — skipping", i);
-      }
-    }
-
-    RCLCPP_INFO(get_logger(), "IK status: %zu / %zu", filtered_joint.size(),
-                joint_traj_.size());
-
-    if (filtered_joint.empty()) {
-      RCLCPP_ERROR(get_logger(), "All IK points failed");
-      return;
-    }
-
-    trajectory_.swap(filtered_traj);
-    joint_traj_.swap(filtered_joint);
-
-    mode_ = ControlMode::JOINTS;
-  }
-
-  else if (msg->data == "line_joints") {
-    RCLCPP_INFO(get_logger(), "Generating line trajectory...");
-    trajectory_ = controller_->generateLine();
-    RCLCPP_INFO(get_logger(), "Generated line trajectory with %zu points",
-                trajectory_.size());
-
-    // Try to update robot state before computing IK (multiple attempts)
-    RCLCPP_INFO(get_logger(), "Attempting to update robot state...");
-    bool robot_updated = false;
-    for (int i = 0; i < 10; ++i) {
-      RCLCPP_INFO(get_logger(), "Update attempt %d/10...", i + 1);
-
-      // Run update() with timeout to avoid blocking
-      std::atomic<bool> update_result{false};
-      std::atomic<bool> update_complete{false};
-      std::thread update_thread([&]() {
-        update_result = controller_->update();
-        update_complete = true;
-      });
-
-      // Wait up to 100ms for update to complete
-      auto start = std::chrono::steady_clock::now();
-      while (!update_complete && (std::chrono::steady_clock::now() - start) <
-                                     std::chrono::milliseconds(100)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-
-      if (update_complete) {
-        update_thread.join();
-        if (update_result) {
-          robot_updated = true;
-          RCLCPP_INFO(get_logger(),
-                      "Robot state updated successfully (attempt %d)", i + 1);
-          break;
-        }
-        RCLCPP_INFO(get_logger(), "Update failed on attempt %d", i + 1);
-      } else {
-        RCLCPP_WARN(get_logger(),
-                    "Update timed out on attempt %d (waiting >100ms)", i + 1);
-        update_thread.detach();  // Detach thread that's still running
-      }
-
-      if (i < 9) {
-        RCLCPP_INFO(get_logger(), "Waiting 10ms before retry...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      } else {
-        RCLCPP_WARN(
-            get_logger(),
-            "All 10 update attempts failed - robot may not be connected");
-      }
-    }
-
-    // Print current robot position
-    if (robot_updated) {
-      const auto& inputs = controller_->getInputs();
-      const auto& cart_fb = inputs.feedback().robot().cartesian().pose();
-      const auto& joint_fb = inputs.feedback().robot().joints().position();
-
-      RCLCPP_INFO(get_logger(), "=== Current Robot Position ===");
-      RCLCPP_INFO(get_logger(),
-                  "Cartesian: x=%.1f mm, y=%.1f mm, z=%.1f mm, rx=%.1f deg, "
-                  "ry=%.1f deg, rz=%.1f deg",
-                  cart_fb.position().x(), cart_fb.position().y(),
-                  cart_fb.position().z(), cart_fb.euler().x(),
-                  cart_fb.euler().y(), cart_fb.euler().z());
-
-      RCLCPP_INFO(get_logger(), "Joints:");
-      for (int i = 0; i < joint_fb.values_size(); ++i) {
-        RCLCPP_INFO(get_logger(), "  Joint %d: %.2f deg", i + 1,
-                    joint_fb.values(i));
-      }
-      RCLCPP_INFO(get_logger(), "==============================");
-    } else {
-      RCLCPP_WARN(get_logger(),
-                  "Failed to update robot state - using last known position");
-    }
-
-    RCLCPP_INFO(get_logger(),
-                "Starting IK computation for %zu trajectory points (this may "
-                "take a while)...",
-                trajectory_.size());
-    auto start_time = std::chrono::steady_clock::now();
-    joint_traj_ = controller_->trajectoryToJoints(trajectory_);
-    auto end_time = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        end_time - start_time);
-    RCLCPP_INFO(get_logger(), "IK computation completed in %ld ms",
-                duration.count());
-    RCLCPP_INFO(get_logger(), "Filtering IK results...");
-
-    std::vector<std::vector<double>> filtered_traj;
-    std::vector<std::vector<double>> filtered_joint;
-
-    for (size_t i = 0; i < joint_traj_.size(); ++i) {
-      if (!joint_traj_[i].empty()) {
-        filtered_traj.push_back(trajectory_[i]);
-        filtered_joint.push_back(joint_traj_[i]);
-      } else {
-        RCLCPP_WARN(get_logger(), "IK failed at point %zu — skipping", i);
-      }
-    }
-
-    RCLCPP_INFO(get_logger(), "IK status: %zu / %zu", filtered_joint.size(),
-                joint_traj_.size());
-
-    if (filtered_joint.empty()) {
-      RCLCPP_ERROR(get_logger(), "All IK points failed");
-      return;
-    }
-
-    RCLCPP_INFO(get_logger(), "Swapping filtered trajectories...");
-    trajectory_.swap(filtered_traj);
-    joint_traj_.swap(filtered_joint);
-
-    RCLCPP_INFO(get_logger(),
-                "Setting mode to JOINTS and starting trajectory execution...");
-    mode_ = ControlMode::JOINTS;
-  } else if (msg->data == "test_ik") {
-    // Test IK with a single point
-    RCLCPP_INFO(get_logger(), "Running IK test...");
-    std::vector<std::vector<double>> sanity{{750, 0, 1121.5, 180, 0, -90}};
-
-    RCLCPP_INFO(get_logger(),
-                "Test point: x=%.1f, y=%.1f, z=%.1f, rx=%.1f, ry=%.1f, rz=%.1f",
-                sanity[0][0], sanity[0][1], sanity[0][2], sanity[0][3],
-                sanity[0][4], sanity[0][5]);
-
-    // Try to update robot state before computing IK
-    RCLCPP_INFO(get_logger(), "Attempting to update robot state for test...");
-    bool robot_updated = false;
-    for (int i = 0; i < 10; ++i) {
-      RCLCPP_INFO(get_logger(), "Update attempt %d/10...", i + 1);
-
-      // Run update() with timeout to avoid blocking
-      std::atomic<bool> update_result{false};
-      std::atomic<bool> update_complete{false};
-      std::thread update_thread([&]() {
-        update_result = controller_->update();
-        update_complete = true;
-      });
-
-      // Wait up to 100ms for update to complete
-      auto start = std::chrono::steady_clock::now();
-      while (!update_complete && (std::chrono::steady_clock::now() - start) <
-                                     std::chrono::milliseconds(100)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-
-      if (update_complete) {
-        update_thread.join();
-        if (update_result) {
-          robot_updated = true;
-          RCLCPP_INFO(get_logger(),
-                      "Robot state updated successfully (attempt %d)", i + 1);
-          break;
-        }
-      } else {
-        update_thread.detach();
-      }
-
-      if (i < 9) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      }
-    }
-
-    if (robot_updated) {
-      const auto& inputs = controller_->getInputs();
-      const auto& cart_fb = inputs.feedback().robot().cartesian().pose();
-      const auto& joint_fb = inputs.feedback().robot().joints().position();
-
-      RCLCPP_INFO(get_logger(), "=== Current Robot Position ===");
-      RCLCPP_INFO(get_logger(),
-                  "Cartesian: x=%.1f mm, y=%.1f mm, z=%.1f mm, rx=%.1f deg, "
-                  "ry=%.1f deg, rz=%.1f deg",
-                  cart_fb.position().x(), cart_fb.position().y(),
-                  cart_fb.position().z(), cart_fb.euler().x(),
-                  cart_fb.euler().y(), cart_fb.euler().z());
-
-      RCLCPP_INFO(get_logger(), "Joints:");
-      for (int i = 0; i < joint_fb.values_size(); ++i) {
-        RCLCPP_INFO(get_logger(), "  Joint %d: %.2f deg", i + 1,
-                    joint_fb.values(i));
-      }
-      RCLCPP_INFO(get_logger(), "==============================");
-
-      // Run FK vs EGM test
-      RCLCPP_INFO(get_logger(), "Running FK vs EGM comparison test...");
-      controller_->testFKvsEGM();
-    } else {
-      RCLCPP_WARN(get_logger(), "Cannot run FK test - robot state not updated");
-    }
-
-    RCLCPP_INFO(get_logger(), "Computing IK for test point...");
-    auto start_time = std::chrono::steady_clock::now();
-    auto test_result = controller_->trajectoryToJoints(sanity);
-    auto end_time = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        end_time - start_time);
-    RCLCPP_INFO(get_logger(), "IK computation completed in %ld ms",
-                duration.count());
-
-    if (!test_result.empty() && !test_result[0].empty()) {
-      RCLCPP_INFO(get_logger(), "IK test SUCCESS! Joint angles:");
-      for (size_t i = 0; i < test_result[0].size(); ++i) {
-        RCLCPP_INFO(get_logger(), "  Joint %zu: %.2f deg", i + 1,
-                    test_result[0][i]);
-      }
-    } else {
-      RCLCPP_ERROR(get_logger(), "IK test FAILED - no solution found");
-    }
-    return;
-  } else {
-    RCLCPP_WARN(get_logger(), "Wrong trajectory type");
-    return;
-  }
-
-  if (trajectory_.empty()) {
-    RCLCPP_WARN(get_logger(), "Empty trajectory");
-    return;
-  }
-
-  RCLCPP_INFO(get_logger(), "Preparing trajectory execution...");
-  line_strip_.points.clear();
-
-  index_ = 0;
-  target_ = trajectory_[0];
-
-  RCLCPP_INFO(get_logger(), "Starting timer for trajectory execution...");
-  timer_->reset();
-  RCLCPP_INFO(get_logger(), "Trajectory execution started!");
+  RCLCPP_INFO(get_logger(),
+              "Target pose: x=%.1f mm, y=%.1f mm, z=%.1f mm, "
+              "rx=%.1f deg, ry=%.1f deg, rz=%.1f deg",
+              target_pose_[0], target_pose_[1], target_pose_[2],
+              target_pose_[3], target_pose_[4], target_pose_[5]);
 }
 
 void EgmNode::update() {
@@ -448,9 +144,18 @@ void EgmNode::update() {
   static int update_fail_count = 0;
 
   update_call_count++;
-  if (update_call_count % 250 == 0) {
-    RCLCPP_DEBUG(get_logger(), "Update called %d times (failures: %d)",
-                 update_call_count, update_fail_count);
+  // Log every 250 iterations (~1 second at 4ms rate) AND first 10 calls
+  if (update_call_count % 250 == 0 || update_call_count <= 10) {
+    size_t target_size;
+    {
+      std::lock_guard<std::mutex> lock(target_pose_mutex_);
+      target_size = target_pose_.size();
+    }
+    RCLCPP_INFO(get_logger(),
+                "[UPDATE] Called %d times, executing_action_=%s, "
+                "target_pose_.size()=%zu",
+                update_call_count, executing_action_.load() ? "true" : "false",
+                target_size);
   }
 
   if (!controller_->update()) {
@@ -464,44 +169,223 @@ void EgmNode::update() {
     return;
   }
 
-  abb::egm::wrapper::Output outputs;
-  bool reached = false;
+  // If EGM state is not OK, the library may ignore external outputs (statesOk()
+  // == false). Make this explicit in logs/results so it's not a silent "robot
+  // doesn't move".
+  const auto& inputs_now = controller_->getInputs();
+  if (inputs_now.has_status()) {
+    const auto& st = inputs_now.status();
+    const bool status_ok =
+        (st.egm_state() == abb::egm::wrapper::Status::EGM_RUNNING) &&
+        (st.motor_state() == abb::egm::wrapper::Status::MOTORS_ON) &&
+        (st.rapid_execution_state() ==
+         abb::egm::wrapper::Status::RAPID_RUNNING);
 
-  outputs.mutable_robot()->mutable_joints()->mutable_position();
+    static int status_log_counter = 0;
+    if (++status_log_counter % 250 == 0 ||
+        (executing_action_.load() && !status_ok)) {
+      RCLCPP_INFO(get_logger(),
+                  "[STATUS] egm_state=%d motor_state=%d rapid_state=%d ok=%s",
+                  static_cast<int>(st.egm_state()),
+                  static_cast<int>(st.motor_state()),
+                  static_cast<int>(st.rapid_execution_state()),
+                  status_ok ? "true" : "false");
+    }
 
-  if (mode_ == ControlMode::CARTESIAN) {
-    reached = controller_->stepToward(target_, outputs);
+    // Grace period: allow status to recover for a short time, otherwise fail
+    // goal.
+    constexpr double status_grace_sec = 2.0;
+    if (!status_ok) {
+      if (!status_not_ok_since_) {
+        status_not_ok_since_ = get_clock()->now();
+      }
+    } else {
+      status_not_ok_since_.reset();
+    }
+
+    if (executing_action_.load() && current_goal_handle_ && !status_ok) {
+      const auto now = get_clock()->now();
+      const double bad_for =
+          status_not_ok_since_ ? (now - *status_not_ok_since_).seconds() : 0.0;
+
+      if (bad_for >= status_grace_sec) {
+        auto result = std::make_shared<abb_pkg::action::MoveToPose::Result>();
+        result->success = false;
+        result->message =
+            "EGM status not OK for too long (need EGM_RUNNING + MOTORS_ON + "
+            "RAPID_RUNNING). "
+            "Check robot RAPID program (EGMActPose), motors, and RAPID state.";
+        current_goal_handle_->abort(result);
+        executing_action_.store(false);
+        current_goal_handle_.reset();
+        cancel_requested_.store(false);
+        status_not_ok_since_.reset();
+        return;
+      }
+      // Otherwise: keep goal alive and wait for status to recover.
+    }
   } else {
-    reached = controller_->stepTowardJoints(joint_traj_[index_], outputs,
-                                            config_.dq_limit,
-                                            config_.joint_tolerance);
+    // If no status is available, still continue; but log once when executing.
+    static bool warned_no_status = false;
+    if (executing_action_.load() && !warned_no_status) {
+      RCLCPP_WARN(get_logger(), "EGM wrapper Input has no status() field");
+      warned_no_status = true;
+    }
   }
 
-  publishMarkers();
+  // If executing action, move toward target
+  // Otherwise, just maintain current position
+  abb::egm::wrapper::Output outputs;
 
-  if (reached) {
-    ++index_;
+  constexpr double position_tolerance_mm = 5.0;
+  constexpr double orientation_tolerance_deg = 2.0;
 
-    if (index_ >= trajectory_.size()) {
-      RCLCPP_INFO(get_logger(), "Trajectory finished");
-      timer_->cancel();
+  if (executing_action_.load() && current_goal_handle_) {
+    // Snapshot target pose
+    std::vector<double> local_target_pose;
+    {
+      std::lock_guard<std::mutex> lock(target_pose_mutex_);
+      local_target_pose = target_pose_;
+    }
+ 
+    if (local_target_pose.size() != 6) {
+      // Abort goal if target is invalid
+      auto result = std::make_shared<abb_pkg::action::MoveToPose::Result>();
+      result->success = false;
+      result->message = "Invalid target pose";
+      current_goal_handle_->abort(result);
+      executing_action_.store(false);
+      current_goal_handle_.reset();
+      cancel_requested_.store(false);
       return;
     }
 
-    target_ = trajectory_[index_];
+    const auto& inputs = controller_->getInputs();
+    const auto& fb = inputs.feedback().robot().cartesian().pose();
+
+    const double cx = fb.position().x();
+    const double cy = fb.position().y();
+    const double cz = fb.position().z();
+    const double crx = fb.euler().x();
+    const double cry = fb.euler().y();
+    const double crz = fb.euler().z();
+
+    const double dx = local_target_pose[0] - cx;
+    const double dy = local_target_pose[1] - cy;
+    const double dz = local_target_pose[2] - cz;
+    const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    const double drx = std::abs(local_target_pose[3] - crx);
+    const double dry = std::abs(local_target_pose[4] - cry);
+    const double drz = std::abs(local_target_pose[5] - crz);
+    const double ori_error = std::max({drx, dry, drz});
+
+    // Feedback (throttled)
+    static int fb_counter = 0;
+    if (++fb_counter % 25 == 0) {  // ~100ms
+      auto feedback = std::make_shared<abb_pkg::action::MoveToPose::Feedback>();
+      feedback->current_position.x = cx * 1e-3;
+      feedback->current_position.y = cy * 1e-3;
+      feedback->current_position.z = cz * 1e-3;
+      tf2::Quaternion q;
+      q.setRPY(crx * M_PI / 180.0, cry * M_PI / 180.0, crz * M_PI / 180.0);
+      feedback->current_orientation.x = q.x();
+      feedback->current_orientation.y = q.y();
+      feedback->current_orientation.z = q.z();
+      feedback->current_orientation.w = q.w();
+      feedback->distance_to_target = dist;
+      current_goal_handle_->publish_feedback(feedback);
+    }
+
+    // Cancel
+    if (cancel_requested_.load() || current_goal_handle_->is_canceling()) {
+      auto result = std::make_shared<abb_pkg::action::MoveToPose::Result>();
+      result->success = false;
+      result->message = "Cancelled";
+      current_goal_handle_->canceled(result);
+      executing_action_.store(false);
+      current_goal_handle_.reset();
+      cancel_requested_.store(false);
+      return;
+    }
+
+    // Success
+    if (dist < position_tolerance_mm && ori_error < orientation_tolerance_deg) {
+      auto result = std::make_shared<abb_pkg::action::MoveToPose::Result>();
+      result->success = true;
+      result->message = "Reached target";
+      current_goal_handle_->succeed(result);
+      executing_action_.store(false);
+      current_goal_handle_.reset();
+      cancel_requested_.store(false);
+      return;
+    }
+
+    // Command motion
+    controller_->stepToward(local_target_pose, outputs);
+  } else {
+    // Get current position and maintain it
+    const auto& inputs = controller_->getInputs();
+    const auto& fb = inputs.feedback().robot().cartesian().pose();
+
+    auto* pose = outputs.mutable_robot()->mutable_cartesian()->mutable_pose();
+    pose->mutable_position()->set_x(fb.position().x());
+    pose->mutable_position()->set_y(fb.position().y());
+    pose->mutable_position()->set_z(fb.position().z());
+    pose->mutable_euler()->set_x(fb.euler().x());
+    pose->mutable_euler()->set_y(fb.euler().y());
+    pose->mutable_euler()->set_z(fb.euler().z());
   }
 
   controller_->write(outputs);
+
+  publishMarkers();
+}
+
+void EgmNode::publishState() {
+  const auto& inputs = controller_->getInputs();
+  const auto& cart_fb = inputs.feedback().robot().cartesian().pose();
+  const auto& joint_fb = inputs.feedback().robot().joints().position();
+
+  // Publish end effector pose
+  geometry_msgs::msg::PoseStamped ee_pose;
+  ee_pose.header.stamp = get_clock()->now();
+  ee_pose.header.frame_id = marker_frame_;
+
+  ee_pose.pose.position.x = cart_fb.position().x() * 1e-3;  // Convert to meters
+  ee_pose.pose.position.y = cart_fb.position().y() * 1e-3;
+  ee_pose.pose.position.z = cart_fb.position().z() * 1e-3;
+
+  // Convert Euler angles to quaternion
+  tf2::Quaternion q;
+  q.setRPY(cart_fb.euler().x() * M_PI / 180.0,
+           cart_fb.euler().y() * M_PI / 180.0,
+           cart_fb.euler().z() * M_PI / 180.0);
+  ee_pose.pose.orientation.x = q.x();
+  ee_pose.pose.orientation.y = q.y();
+  ee_pose.pose.orientation.z = q.z();
+  ee_pose.pose.orientation.w = q.w();
+
+  ee_pose_pub_->publish(ee_pose);
+
+  // Publish joint states
+  sensor_msgs::msg::JointState joint_state;
+  joint_state.header.stamp = get_clock()->now();
+  joint_state.header.frame_id = marker_frame_;
+
+  // Joint names (adjust based on your robot)
+  for (int i = 0; i < joint_fb.values_size(); ++i) {
+    joint_state.name.push_back("joint_" + std::to_string(i + 1));
+    joint_state.position.push_back(joint_fb.values(i) * M_PI /
+                                   180.0);  // Convert to radians
+  }
+
+  joint_state_pub_->publish(joint_state);
 }
 
 void EgmNode::publishMarkers() {
   const auto& inputs = controller_->getInputs();
   const auto& fb = inputs.feedback().robot().cartesian().pose();
-
-  // publishSphere(target_, 0, 1.f, 0.f, 0.f);
-
-  // publishSphere({fb.position().x(), fb.position().y(), fb.position().z()}, 1,
-  // 0.f, 1.f, 0.f);
 
   geometry_msgs::msg::Point p;
   p.x = fb.position().x() * 1e-3;
@@ -555,6 +439,39 @@ void EgmNode::initLineStrip() {
   line_strip_.scale.x = 0.01;
   line_strip_.color.b = 1.0;
   line_strip_.color.a = 1.0;
+}
+
+void EgmNode::ping() {
+  std_msgs::msg::Bool msg;
+  msg.data = true;
+  ping_pub_->publish(msg);
+}
+
+std::vector<double> EgmNode::quaternionToEuler(
+    const geometry_msgs::msg::Quaternion& quat) {
+  tf2::Quaternion q(quat.x, quat.y, quat.z, quat.w);
+  tf2::Matrix3x3 m(q);
+  double roll, pitch, yaw;
+  m.getRPY(roll, pitch, yaw);
+
+  // Convert to degrees
+  return {roll * 180.0 / M_PI, pitch * 180.0 / M_PI, yaw * 180.0 / M_PI};
+}
+
+std::vector<double> EgmNode::poseToTarget(
+    const geometry_msgs::msg::Point& position,
+    const geometry_msgs::msg::Quaternion& orientation) {
+  std::vector<double> euler = quaternionToEuler(orientation);
+
+  // Convert position from meters to millimeters
+  return {
+      position.x * 1000.0,  // x in mm
+      position.y * 1000.0,  // y in mm
+      position.z * 1000.0,  // z in mm
+      euler[0],             // rx in degrees
+      euler[1],             // ry in degrees
+      euler[2]              // rz in degrees
+  };
 }
 
 int main(int argc, char** argv) {

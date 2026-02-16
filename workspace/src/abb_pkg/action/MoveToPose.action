@@ -1,0 +1,12 @@
+# Request: целевая поза
+geometry_msgs/Point position
+geometry_msgs/Quaternion orientation
+---
+# Result: успех выполнения
+bool success
+string message
+---
+# Feedback: текущий прогресс
+geometry_msgs/Point current_position
+geometry_msgs/Quaternion current_orientation
+float64 distance_to_target
