@@ -235,13 +235,13 @@ def main(args=None):
     # # Handle future in your own callback
     
     try:
-    rclpy.spin(node)
+        rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info('Shutting down...')
         node.cancel_current_goal()
     finally:
-    node.destroy_node()
-    rclpy.shutdown()
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
