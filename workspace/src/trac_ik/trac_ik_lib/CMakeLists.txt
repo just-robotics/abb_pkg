@@ -20,6 +20,14 @@ find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(NLopt REQUIRED)
+# Require C++ header nlopt.hpp (from libnlopt-cxx-dev on Debian/Ubuntu)
+find_file(_nlopt_hpp nlopt.hpp PATHS ${NLOPT_INCLUDE_DIRS} /usr/include NO_DEFAULT_PATH)
+if(NOT _nlopt_hpp)
+  message(FATAL_ERROR
+    "nlopt.hpp not found. Install the C++ dev package:\n"
+    "  sudo apt-get install -y libnlopt-cxx-dev")
+endif()
+unset(_nlopt_hpp CACHE)
 find_package(rclcpp REQUIRED)
 find_package(urdf REQUIRED)
 
@@ -40,15 +48,13 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
-  ${NLOPT_INCLUDE_DIRS}
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE "TRAC_IK_BUILDING_LIBRARY")
 
-# Needed since NLopt is not an ament package
-target_link_libraries(${PROJECT_NAME}
-  ${NLOPT_LIBRARIES}
-)
+# Use imported target so include dirs (e.g. for nlopt.hpp) are propagated.
+# Plain signature to match ament_target_dependencies (no PUBLIC/PRIVATE).
+target_link_libraries(${PROJECT_NAME} NLopt::nlopt)
 
 ament_target_dependencies(${PROJECT_NAME}
   ament_cmake
