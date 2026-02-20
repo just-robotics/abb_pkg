@@ -90,7 +90,7 @@ class _AbbEgmRosNode(Node):
     def _on_pose(self, msg: PoseStamped):
         with self._lock:
             self._ee_pose = msg
-
+            
     def snapshot(self) -> tuple[Optional[JointState], Optional[PoseStamped]]:
         with self._lock:
             return self._joint_state, self._ee_pose
@@ -179,7 +179,7 @@ class AbbEgmRobot(Robot):
 
         self._spin_thread = threading.Thread(target=_spin, daemon=True)
         self._spin_thread.start()
-
+        
     def disconnect(self) -> None:
         if not self._is_connected:
             return
@@ -197,13 +197,13 @@ class AbbEgmRobot(Robot):
 
     def _ordered_joint_positions(self, js: JointState) -> np.ndarray:
         if js.name and self.config.joint_names:
-            name_to_idx = {n: i for i, n in enumerate(js.name)}
+        name_to_idx = {n: i for i, n in enumerate(js.name)}
             out = np.zeros((len(self.config.joint_names),), dtype=np.float32)
             for k, jn in enumerate(self.config.joint_names):
-                if jn not in name_to_idx:
-                    raise KeyError(f"Joint '{jn}' not found in JointState.name")
+            if jn not in name_to_idx:
+                raise KeyError(f"Joint '{jn}' not found in JointState.name")
                 out[k] = float(js.position[name_to_idx[jn]])
-            return out
+        return out
         return np.array(js.position, dtype=np.float32)
 
     def get_observation(self) -> dict[str, Any]:

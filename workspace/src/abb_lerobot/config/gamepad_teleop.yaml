@@ -1,0 +1,45 @@
+gamepad_teleop:
+  ros__parameters:
+    # Joy topic
+    joy_topic: "/joy"
+    
+    # Cmd vel topic
+    cmd_vel_topic: "/cmd_vel"
+    
+    # Dead zone for joystick axes
+    dead_zone: 0.1
+    
+    # Publish rate in Hz
+    publish_rate: 20.0
+    
+    # Axis sign multipliers (-1 or 1)
+    # These allow inverting axes if needed
+    axis_signs:
+      linear_x: 1.0    # axis 1: -1 means axis 1 -: +x, axis 1 +: -x
+      linear_y: 1.0    # axis 0: -1 means axis 0 -: +y, axis 0 +: -y
+      linear_z_axis2: -0.5   # axis 2: +z
+      linear_z_axis5: 0.5  # axis 5: -z
+      angular_x: -1.0    # axis 3: roll
+      angular_y: -1.0   # axis 4: pitch
+      angular_z: 1.0    # axis 3 when button 4: yaw
+    
+    # Axis indices (0-based)
+    axis_indices:
+      linear_x: 1
+      linear_y: 0
+      linear_z_axis2: 2
+      linear_z_axis5: 5
+      angular_x: 3
+      angular_y: 4
+      angular_z: 3  # same as angular_x, but only when button 4 is pressed
+    
+    # Button index for yaw control
+    yaw_button_index: 4
+    
+    # Lock other axes when moving along Z axis
+    # If true, when there's movement along Z (linear.z != 0), all other axes (x, y, roll, pitch, yaw) will be set to 0
+    lock_other_axes_on_z_movement: true
+    
+    # Lock other angular axes when moving along one angular axis
+    # If true, when there's movement along one angular axis (roll, pitch, or yaw), the other two angular axes will be set to 0
+    lock_other_angular_on_angular_movement: true
