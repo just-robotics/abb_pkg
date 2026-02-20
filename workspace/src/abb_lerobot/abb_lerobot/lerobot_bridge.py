@@ -61,10 +61,13 @@ class TargetPoseBridgeNode(Node):
 
     def _on_target_pose(self, msg: PoseStamped):
         if not self._client.wait_for_server(timeout_sec=0.0):
-            self.get_logger().warn("move_to_pose server not available yet")
+            if not hasattr(self, '_server_warn_logged'):
+                self.get_logger().warn("move_to_pose server not available yet")
+                self._server_warn_logged = True
             return
 
         if self._busy and self._preempt and self._goal_handle is not None:
+            self.get_logger().info("Preempting previous goal")
             self._goal_handle.cancel_goal_async()
 
         goal = MoveToPose.Goal()
@@ -73,6 +76,11 @@ class TargetPoseBridgeNode(Node):
         goal.position.z = msg.pose.position.z
         goal.orientation = msg.pose.orientation
 
+        self.get_logger().info(
+            f"Received target_pose: x={goal.position.x:.3f}, y={goal.position.y:.3f}, z={goal.position.z:.3f}, "
+            f"quat=({goal.orientation.x:.3f}, {goal.orientation.y:.3f}, {goal.orientation.z:.3f}, {goal.orientation.w:.3f})"
+        )
+
         self._busy = True
         fut = self._client.send_goal_async(goal)
         fut.add_done_callback(self._on_goal_response)
@@ -80,11 +88,13 @@ class TargetPoseBridgeNode(Node):
     def _on_goal_response(self, future):
         goal_handle = future.result()
         if not goal_handle.accepted:
+            self.get_logger().warn("Goal rejected by action server")
             self._publish_result(False, "Goal rejected")
             self._busy = False
             self._goal_handle = None
             return
 
+        self.get_logger().info("Goal accepted by action server")
         self._goal_handle = goal_handle
         res_fut = goal_handle.get_result_async()
         res_fut.add_done_callback(self._on_result)
@@ -92,6 +102,10 @@ class TargetPoseBridgeNode(Node):
     def _on_result(self, future):
         try:
             res = future.result().result
+            if res.success:
+                self.get_logger().info(f"Goal completed successfully: {res.message}")
+            else:
+                self.get_logger().warn(f"Goal failed: {res.message}")
             self._publish_result(res.success, res.message)
         finally:
             self._busy = False

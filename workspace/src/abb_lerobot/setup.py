@@ -64,6 +64,7 @@ setup(
             'lerobot_bridge = abb_lerobot.lerobot_bridge:main',
             'dataset_recorder = abb_lerobot.dataset_recorder:main',
             'gamepad_teleop = abb_lerobot.gamepad_teleop:main',
+            'cmd_vel_to_target_pose = abb_lerobot.cmd_vel_to_target_pose:main',
         ],
     },
     cmdclass={'develop': develop},
