@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<robot name="irb1600_simple">
+
+  <!-- ================= LINKS ================= -->
+
+  <link name="base_link"/>
+  <link name="link_1"/>
+  <link name="link_2"/>
+  <link name="link_3"/>
+  <link name="link_4"/>
+  <link name="link_5"/>
+  <link name="link_6"/>
+  <link name="tool0"/>
+
+  <!-- ================= JOINTS ================= -->
+
+  <!-- J1 -->
+  <joint name="joint_1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link_1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14" upper="3.14" effort="1" velocity="3"/>
+  </joint>
+
+  <!-- J2 -->
+  <joint name="joint_2" type="revolute">
+    <parent link="link_1"/>
+    <child link="link_2"/>
+    <origin xyz="0.15 0 0.4865" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="2.09" effort="1" velocity="3"/>
+  </joint>
+
+  <!-- J3 -->
+  <joint name="joint_3" type="revolute">
+    <parent link="link_2"/>
+    <child link="link_3"/>
+    <origin xyz="0 0 0.7" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-4.27" upper="1.13" effort="1" velocity="3"/>
+  </joint>
+
+  <!-- J4 -->
+  <joint name="joint_4" type="revolute">
+    <parent link="link_3"/>
+    <child link="link_4"/>
+    <origin xyz="0.3 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.49" upper="3.49" effort="1" velocity="6"/>
+  </joint>
+
+  <!-- J5 -->
+  <joint name="joint_5" type="revolute">
+    <parent link="link_4"/>
+    <child link="link_5"/>
+    <origin xyz="0.3 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.0" upper="2.0" effort="1" velocity="6"/>
+  </joint>
+
+  <!-- J6 -->
+  <joint name="joint_6" type="revolute">
+    <parent link="link_5"/>
+    <child link="link_6"/>
+    <origin xyz="0.065 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-6.28" upper="6.28" effort="1" velocity="7"/>
+  </joint>
+
+  <!-- TOOL FRAME -->
+  <joint name="joint_tool" type="fixed">
+    <parent link="link_6"/>
+    <child link="tool0"/>
+    <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+  </joint>
+
+</robot>
