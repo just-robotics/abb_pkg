@@ -1,0 +1,14 @@
+vel_control_node:
+  ros__parameters:
+    port: 6515
+    marker_frame: "base"
+    cmd_vel_lin_gain: 1.0
+    cmd_vel_ang_gain: 1.0
+    cmd_vel_timeout_s: 0.15
+    # Pose sent to robot (mm, deg): x, y, z, rx, ry, rz
+    pose_x: 750.0
+    pose_y: 0.0
+    pose_z: 1641.0
+    pose_rx: -180.0
+    pose_ry: 0.0
+    pose_rz: -90.0
