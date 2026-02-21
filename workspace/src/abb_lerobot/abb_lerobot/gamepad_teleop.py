@@ -88,6 +88,44 @@ class GamepadTeleopNode(Node):
         self.declare_parameter("lock_other_angular_on_angular_movement", False)
         self._lock_other_angular_on_angular = self.get_parameter("lock_other_angular_on_angular_movement").get_parameter_value().bool_value
         
+        # Speed scaling factors (coefficients)
+        self.declare_parameter("speed_scale.linear_initial", 1.0)
+        self.declare_parameter("speed_scale.angular_initial", 1.0)
+        self.declare_parameter("speed_scale.step_linear", 0.01)
+        self.declare_parameter("speed_scale.step_angular", 0.01)
+        self.declare_parameter("speed_scale.min", 0.01)
+        self.declare_parameter("speed_scale.max", 5.0)
+        
+        # Get speed scale parameters
+        self._linear_scale_initial = self.get_parameter("speed_scale.linear_initial").get_parameter_value().double_value
+        self._angular_scale_initial = self.get_parameter("speed_scale.angular_initial").get_parameter_value().double_value
+        self._scale_step_linear = self.get_parameter("speed_scale.step_linear").get_parameter_value().double_value
+        self._scale_step_angular = self.get_parameter("speed_scale.step_angular").get_parameter_value().double_value
+        self._scale_min = self.get_parameter("speed_scale.min").get_parameter_value().double_value
+        self._scale_max = self.get_parameter("speed_scale.max").get_parameter_value().double_value
+        
+        # Current speed scaling factors
+        self._linear_scale = self._linear_scale_initial
+        self._angular_scale = self._angular_scale_initial
+        
+        # Button indices for speed scale control
+        self.declare_parameter("speed_scale.button_linear_inc", 0)  # Button to increase linear scale
+        self.declare_parameter("speed_scale.button_linear_dec", 1)  # Button to decrease linear scale
+        self.declare_parameter("speed_scale.button_angular_inc", 2)  # Button to increase angular scale
+        self.declare_parameter("speed_scale.button_angular_dec", 3)  # Button to decrease angular scale
+        
+        # Get button indices
+        self._button_linear_inc = self.get_parameter("speed_scale.button_linear_inc").get_parameter_value().integer_value
+        self._button_linear_dec = self.get_parameter("speed_scale.button_linear_dec").get_parameter_value().integer_value
+        self._button_angular_inc = self.get_parameter("speed_scale.button_angular_inc").get_parameter_value().integer_value
+        self._button_angular_dec = self.get_parameter("speed_scale.button_angular_dec").get_parameter_value().integer_value
+        
+        # Track previous button states to detect presses (edge detection)
+        self._prev_button_linear_inc = 0
+        self._prev_button_linear_dec = 0
+        self._prev_button_angular_inc = 0
+        self._prev_button_angular_dec = 0
+        
         # Publisher
         self._cmd_vel_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
         
@@ -118,7 +156,11 @@ class GamepadTeleopNode(Node):
             f"angular_x={self._idx_angular_x}, angular_y={self._idx_angular_y}, angular_z={self._idx_angular_z}\n"
             f"  Yaw button index: {self._yaw_button_idx}\n"
             f"  Lock other axes on Z movement: {self._lock_other_axes_on_z}\n"
-            f"  Lock other angular on angular movement: {self._lock_other_angular_on_angular}"
+            f"  Lock other angular on angular movement: {self._lock_other_angular_on_angular}\n"
+            f"  Speed scales: linear={self._linear_scale:.3f} (step={self._scale_step_linear:.3f}), "
+            f"angular={self._angular_scale:.3f} (step={self._scale_step_angular:.3f})\n"
+            f"  Speed scale controls: button {self._button_linear_inc}=linear+, button {self._button_linear_dec}=linear-, "
+            f"button {self._button_angular_inc}=angular+, button {self._button_angular_dec}=angular-"
         )
 
     def _apply_dead_zone(self, value):
@@ -132,6 +174,51 @@ class GamepadTeleopNode(Node):
         if not self._joy_received:
             self._joy_received = True
             self.get_logger().info(f"Received first joy message: axes={len(msg.axes)}, buttons={len(msg.buttons)}")
+        
+        # Process speed scale adjustments using buttons
+        # Button for linear scale increase (button 0)
+        if len(msg.buttons) > self._button_linear_inc:
+            button_pressed = msg.buttons[self._button_linear_inc]
+            # Detect button press (edge detection: was 0, now 1)
+            if button_pressed == 1 and self._prev_button_linear_inc == 0:
+                old_scale = self._linear_scale
+                self._linear_scale = min(self._linear_scale + self._scale_step_linear, self._scale_max)
+                print(f"[SPEED SCALE] Linear scale: {old_scale:.3f} -> {self._linear_scale:.3f} (button {self._button_linear_inc}, step={self._scale_step_linear:.3f})")
+                self.get_logger().info(f"[SPEED SCALE] Linear scale: {old_scale:.3f} -> {self._linear_scale:.3f} (button {self._button_linear_inc}, step={self._scale_step_linear:.3f})")
+            self._prev_button_linear_inc = button_pressed
+        
+        # Button for linear scale decrease (button 1)
+        if len(msg.buttons) > self._button_linear_dec:
+            button_pressed = msg.buttons[self._button_linear_dec]
+            # Detect button press (edge detection: was 0, now 1)
+            if button_pressed == 1 and self._prev_button_linear_dec == 0:
+                old_scale = self._linear_scale
+                self._linear_scale = max(self._linear_scale - self._scale_step_linear, self._scale_min)
+                print(f"[SPEED SCALE] Linear scale: {old_scale:.3f} -> {self._linear_scale:.3f} (button {self._button_linear_dec}, step={self._scale_step_linear:.3f})")
+                self.get_logger().info(f"[SPEED SCALE] Linear scale: {old_scale:.3f} -> {self._linear_scale:.3f} (button {self._button_linear_dec}, step={self._scale_step_linear:.3f})")
+            self._prev_button_linear_dec = button_pressed
+        
+        # Button for angular scale increase (button 2)
+        if len(msg.buttons) > self._button_angular_inc:
+            button_pressed = msg.buttons[self._button_angular_inc]
+            # Detect button press (edge detection: was 0, now 1)
+            if button_pressed == 1 and self._prev_button_angular_inc == 0:
+                old_scale = self._angular_scale
+                self._angular_scale = min(self._angular_scale + self._scale_step_angular, self._scale_max)
+                print(f"[SPEED SCALE] Angular scale: {old_scale:.3f} -> {self._angular_scale:.3f} (button {self._button_angular_inc}, step={self._scale_step_angular:.3f})")
+                self.get_logger().info(f"[SPEED SCALE] Angular scale: {old_scale:.3f} -> {self._angular_scale:.3f} (button {self._button_angular_inc}, step={self._scale_step_angular:.3f})")
+            self._prev_button_angular_inc = button_pressed
+        
+        # Button for angular scale decrease (button 3)
+        if len(msg.buttons) > self._button_angular_dec:
+            button_pressed = msg.buttons[self._button_angular_dec]
+            # Detect button press (edge detection: was 0, now 1)
+            if button_pressed == 1 and self._prev_button_angular_dec == 0:
+                old_scale = self._angular_scale
+                self._angular_scale = max(self._angular_scale - self._scale_step_angular, self._scale_min)
+                print(f"[SPEED SCALE] Angular scale: {old_scale:.3f} -> {self._angular_scale:.3f} (button {self._button_angular_dec}, step={self._scale_step_angular:.3f})")
+                self.get_logger().info(f"[SPEED SCALE] Angular scale: {old_scale:.3f} -> {self._angular_scale:.3f} (button {self._button_angular_dec}, step={self._scale_step_angular:.3f})")
+            self._prev_button_angular_dec = button_pressed
         
         # Check if we have enough axes/buttons
         max_axis_idx = max(
@@ -246,6 +333,14 @@ class GamepadTeleopNode(Node):
                     cmd_vel.angular.x = 0.0
                     cmd_vel.angular.y = 0.0
         
+        # Apply speed scaling factors
+        cmd_vel.linear.x *= self._linear_scale
+        cmd_vel.linear.y *= self._linear_scale
+        cmd_vel.linear.z *= self._linear_scale
+        cmd_vel.angular.x *= self._angular_scale
+        cmd_vel.angular.y *= self._angular_scale
+        cmd_vel.angular.z *= self._angular_scale
+        
         # Update current cmd_vel
         self._current_cmd_vel = cmd_vel
         
@@ -267,7 +362,8 @@ class GamepadTeleopNode(Node):
             self.get_logger().info(
                 f"Published cmd_vel: "
                 f"linear=({self._current_cmd_vel.linear.x:.3f}, {self._current_cmd_vel.linear.y:.3f}, {self._current_cmd_vel.linear.z:.3f}), "
-                f"angular=({self._current_cmd_vel.angular.x:.3f}, {self._current_cmd_vel.angular.y:.3f}, {self._current_cmd_vel.angular.z:.3f})"
+                f"angular=({self._current_cmd_vel.angular.x:.3f}, {self._current_cmd_vel.angular.y:.3f}, {self._current_cmd_vel.angular.z:.3f}), "
+                f"scales: linear={self._linear_scale:.3f}, angular={self._angular_scale:.3f}"
             )
 
 

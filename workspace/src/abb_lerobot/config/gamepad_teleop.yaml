@@ -43,3 +43,23 @@ gamepad_teleop:
     # Lock other angular axes when moving along one angular axis
     # If true, when there's movement along one angular axis (roll, pitch, or yaw), the other two angular axes will be set to 0
     lock_other_angular_on_angular_movement: true
+    
+    # Speed scaling factors (coefficients)
+    # These factors multiply the cmd_vel values before publishing
+    speed_scale:
+      linear_initial: 0.1    # Initial linear speed scale
+      angular_initial: 1.0    # Initial angular speed scale
+      step_linear: 0.05       # Step size for changing linear scale (per button press)
+      step_angular: 0.1      # Step size for changing angular scale (per button press)
+      min: 0.01               # Minimum scale value
+      max: 5.0                # Maximum scale value
+      button_linear_inc: 3    # Button index to increase linear scale
+      button_linear_dec: 0    # Button index to decrease linear scale
+      button_angular_inc: 2   # Button index to increase angular scale
+      button_angular_dec: 1   # Button index to decrease angular scale
+    
+    # Speed scale controls (using gamepad buttons):
+    # - button 0: increase linear scale
+    # - button 1: decrease linear scale
+    # - button 2: increase angular scale
+    # - button 3: decrease angular scale
