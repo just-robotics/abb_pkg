@@ -21,6 +21,7 @@
   <depend>abb_libegm</depend>
   <depend>trac_ik_lib</depend>
   <depend>kdl_parser</depend>
+  <depend>abb_irb1600_support</depend>
 
   <!-- For launch files -->
   <exec_depend>launch</exec_depend>
