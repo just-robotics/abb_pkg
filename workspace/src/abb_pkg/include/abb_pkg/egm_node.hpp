@@ -4,10 +4,12 @@
 
 #include <abb_libegm/egm_wrapper.pb.h>
 
+#include <array>
 #include <atomic>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -33,6 +35,9 @@ class EgmNode : public rclcpp::Node {
     // Action server
     rclcpp_action::Server<abb_pkg::action::MoveToPose>::SharedPtr action_server_;
 
+    // Subscribers
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+
     // Publishers
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr ee_pose_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
@@ -55,6 +60,15 @@ class EgmNode : public rclcpp::Node {
 
     // If controller status is temporarily not OK, don't fail immediately.
     std::optional<rclcpp::Time> status_not_ok_since_;
+
+    // cmd_vel: cache for building velocity output and last feedback pose for callback
+    std::mutex cmd_vel_mutex_;
+    geometry_msgs::msg::Twist last_cmd_vel_;
+    std::optional<rclcpp::Time> last_cmd_vel_time_;
+    std::array<double, 6> last_feedback_pose_{};  // x,y,z,rx,ry,rz (mm, deg)
+    double cmd_vel_lin_gain_{1.0};
+    double cmd_vel_ang_gain_{1.0};
+    double cmd_vel_timeout_s_{0.15};
 
 public:
     EgmNode();
@@ -85,10 +99,19 @@ private:
 
     // Convert quaternion to Euler angles (in degrees)
     std::vector<double> quaternionToEuler(const geometry_msgs::msg::Quaternion& quat);
-    
+
     // Convert position from meters to millimeters
     std::vector<double> poseToTarget(const geometry_msgs::msg::Point& position,
                                      const geometry_msgs::msg::Quaternion& orientation);
+
+    // Fill TCP velocity in EGM output (linear mm/s, angular deg/s; gains applied inside)
+    void fillVelocityOutput(double dx, double dy, double dz,
+                           double drx, double dry, double drz,
+                           double lin_gain, double ang_gain,
+                           abb::egm::wrapper::Output& outputs);
+
+    // cmd_vel subscription callback: build output with pose + velocity and send to robot
+    void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
 };
 
 

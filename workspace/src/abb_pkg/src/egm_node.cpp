@@ -7,6 +7,7 @@
 #include <cmath>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <stdexcept>
 #include <thread>
 
@@ -36,10 +37,17 @@ EgmNode::EgmNode() : Node("egm_node") {
   config.dq_limit = declare_parameter<double>("dq_limit", 0.2);
   config.joint_tolerance = declare_parameter<double>("joint_tolerance", 0.5);
 
+  cmd_vel_lin_gain_ = declare_parameter<double>("cmd_vel_lin_gain", 1.0);
+  cmd_vel_ang_gain_ = declare_parameter<double>("cmd_vel_ang_gain", 1.0);
+  cmd_vel_timeout_s_ = declare_parameter<double>("cmd_vel_timeout_s", 0.15);
+
   if (config.urdf_string.empty()) {
     RCLCPP_FATAL(get_logger(), "robot_description parameter is EMPTY");
     throw std::runtime_error("Missing URDF");
   }
+
+  cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+      "cmd_vel", 10, std::bind(&EgmNode::cmdVelCallback, this, std::placeholders::_1));
 
   RCLCPP_INFO(get_logger(), "Creating publishers...");
   marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
@@ -233,8 +241,20 @@ void EgmNode::update() {
     }
   }
 
+  const auto& inputs_for_cache = controller_->getInputs();
+  {
+    std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
+    const auto& fb = inputs_for_cache.feedback().robot().cartesian().pose();
+    last_feedback_pose_[0] = fb.position().x();
+    last_feedback_pose_[1] = fb.position().y();
+    last_feedback_pose_[2] = fb.position().z();
+    last_feedback_pose_[3] = fb.euler().x();
+    last_feedback_pose_[4] = fb.euler().y();
+    last_feedback_pose_[5] = fb.euler().z();
+  }
+
   // If executing action, move toward target
-  // Otherwise, just maintain current position
+  // Otherwise, maintain current position or apply cmd_vel velocity
   abb::egm::wrapper::Output outputs;
 
   constexpr double position_tolerance_mm = 5.0;
@@ -324,7 +344,6 @@ void EgmNode::update() {
     // Command motion
     controller_->stepToward(local_target_pose, outputs);
   } else {
-    // Get current position and maintain it
     const auto& inputs = controller_->getInputs();
     const auto& fb = inputs.feedback().robot().cartesian().pose();
 
@@ -335,6 +354,25 @@ void EgmNode::update() {
     pose->mutable_euler()->set_x(fb.euler().x());
     pose->mutable_euler()->set_y(fb.euler().y());
     pose->mutable_euler()->set_z(fb.euler().z());
+
+    bool use_cmd_vel = false;
+    {
+      std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
+      if (last_cmd_vel_time_.has_value()) {
+        const auto now = get_clock()->now();
+        if ((now - *last_cmd_vel_time_).seconds() < cmd_vel_timeout_s_) {
+          use_cmd_vel = true;
+          fillVelocityOutput(
+              last_cmd_vel_.linear.x * 1000.0,
+              last_cmd_vel_.linear.y * 1000.0,
+              last_cmd_vel_.linear.z * 1000.0,
+              last_cmd_vel_.angular.x * 180.0 / M_PI,
+              last_cmd_vel_.angular.y * 180.0 / M_PI,
+              last_cmd_vel_.angular.z * 180.0 / M_PI,
+              cmd_vel_lin_gain_, cmd_vel_ang_gain_, outputs);
+        }
+      }
+    }
   }
 
   controller_->write(outputs);
@@ -472,6 +510,49 @@ std::vector<double> EgmNode::poseToTarget(
       euler[1],             // ry in degrees
       euler[2]              // rz in degrees
   };
+}
+
+void EgmNode::fillVelocityOutput(double dx, double dy, double dz,
+                                 double drx, double dry, double drz,
+                                 double lin_gain, double ang_gain,
+                                 abb::egm::wrapper::Output& outputs) {
+  auto* vel = outputs.mutable_robot()->mutable_cartesian()->mutable_velocity();
+  vel->mutable_linear()->set_x(dx * lin_gain);   // mm/s
+  vel->mutable_linear()->set_y(dy * lin_gain);
+  vel->mutable_linear()->set_z(dz * lin_gain);
+  vel->mutable_angular()->set_x(drx * ang_gain);  // deg/s
+  vel->mutable_angular()->set_y(dry * ang_gain);
+  vel->mutable_angular()->set_z(drz * ang_gain);
+}
+
+void EgmNode::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+  std::array<double, 6> pose_copy;
+  {
+    std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
+    pose_copy = last_feedback_pose_;
+    last_cmd_vel_ = *msg;
+    last_cmd_vel_time_ = get_clock()->now();
+  }
+
+  abb::egm::wrapper::Output outputs;
+  auto* pose = outputs.mutable_robot()->mutable_cartesian()->mutable_pose();
+  pose->mutable_position()->set_x(pose_copy[0]);
+  pose->mutable_position()->set_y(pose_copy[1]);
+  pose->mutable_position()->set_z(pose_copy[2]);
+  pose->mutable_euler()->set_x(pose_copy[3]);
+  pose->mutable_euler()->set_y(pose_copy[4]);
+  pose->mutable_euler()->set_z(pose_copy[5]);
+
+  const double dx = msg->linear.x * 1000.0;   // m/s -> mm/s
+  const double dy = msg->linear.y * 1000.0;
+  const double dz = msg->linear.z * 1000.0;
+  const double drx = msg->angular.x * 180.0 / M_PI;  // rad/s -> deg/s
+  const double dry = msg->angular.y * 180.0 / M_PI;
+  const double drz = msg->angular.z * 180.0 / M_PI;
+  fillVelocityOutput(dx, dy, dz, drx, dry, drz,
+                    cmd_vel_lin_gain_, cmd_vel_ang_gain_, outputs);
+
+  controller_->write(outputs);
 }
 
 int main(int argc, char** argv) {
