@@ -1,0 +1,24 @@
+services:
+  abb:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: abb
+
+    environment:
+      - DISPLAY=$DISPLAY
+      - QT_X11_NO_MITSHM=1
+
+    working_dir: /workspace
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # - /dev/input/by-id/usb-Microsoft_Controller_3039373130303330373636343135-joystick:/dev/input/js0
+      - /dev/input:/dev/input
+
+    network_mode: host
+
+    privileged: true
+
+    tty: true
+    stdin_open: true
+    entrypoint: []

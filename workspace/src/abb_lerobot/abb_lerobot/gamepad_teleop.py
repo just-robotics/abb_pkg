@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 
 
 class GamepadTeleopNode(Node):
@@ -51,6 +52,10 @@ class GamepadTeleopNode(Node):
         # Button index for yaw
         self.declare_parameter("yaw_button_index", 4)
         
+        # Gripper control
+        self.declare_parameter("gripper_button_index", 5)
+        self.declare_parameter("gripper_topic", "/gripper/command")
+        
         # Lock other axes when moving along Z
         self.declare_parameter("lock_other_axes_on_z_movement", False)
         
@@ -80,6 +85,12 @@ class GamepadTeleopNode(Node):
         
         # Yaw button
         self._yaw_button_idx = self.get_parameter("yaw_button_index").get_parameter_value().integer_value
+        
+        # Gripper control
+        self._gripper_button_idx = self.get_parameter("gripper_button_index").get_parameter_value().integer_value
+        self._gripper_topic = self.get_parameter("gripper_topic").get_parameter_value().string_value
+        self._prev_gripper_button_state = 0
+        self._gripper_state = "0"  # Current gripper state: "0" or "1"
         
         # Lock other axes on Z movement
         self._lock_other_axes_on_z = self.get_parameter("lock_other_axes_on_z_movement").get_parameter_value().bool_value
@@ -126,8 +137,9 @@ class GamepadTeleopNode(Node):
         self._prev_button_angular_inc = 0
         self._prev_button_angular_dec = 0
         
-        # Publisher
+        # Publishers
         self._cmd_vel_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
+        self._gripper_pub = self.create_publisher(String, self._gripper_topic, 10)
         
         # Subscriber
         self._joy_sub = self.create_subscription(Joy, self._joy_topic, self._joy_callback, 10)
@@ -160,7 +172,8 @@ class GamepadTeleopNode(Node):
             f"  Speed scales: linear={self._linear_scale:.3f} (step={self._scale_step_linear:.3f}), "
             f"angular={self._angular_scale:.3f} (step={self._scale_step_angular:.3f})\n"
             f"  Speed scale controls: button {self._button_linear_inc}=linear+, button {self._button_linear_dec}=linear-, "
-            f"button {self._button_angular_inc}=angular+, button {self._button_angular_dec}=angular-"
+            f"button {self._button_angular_inc}=angular+, button {self._button_angular_dec}=angular-\n"
+            f"  Gripper control: button {self._gripper_button_idx} -> {self._gripper_topic}"
         )
 
     def _apply_dead_zone(self, value):
@@ -220,17 +233,42 @@ class GamepadTeleopNode(Node):
                 self.get_logger().info(f"[SPEED SCALE] Angular scale: {old_scale:.3f} -> {self._angular_scale:.3f} (button {self._button_angular_dec}, step={self._scale_step_angular:.3f})")
             self._prev_button_angular_dec = button_pressed
         
+        # Process gripper control (button 5)
+        if len(msg.buttons) > self._gripper_button_idx:
+            button_pressed = msg.buttons[self._gripper_button_idx]
+            # Detect button press (edge detection: was 0, now 1)
+            if button_pressed == 1 and self._prev_gripper_button_state == 0:
+                # Toggle gripper state: "0" <-> "1"
+                if self._gripper_state == "0":
+                    self._gripper_state = "1"
+                else:
+                    self._gripper_state = "0"
+                
+                # Publish gripper command
+                gripper_msg = String()
+                gripper_msg.data = self._gripper_state
+                self._gripper_pub.publish(gripper_msg)
+                print(f"[GRIPPER] Command: {self._gripper_state} (button {self._gripper_button_idx})")
+                self.get_logger().info(f"[GRIPPER] Command: {self._gripper_state} (button {self._gripper_button_idx})")
+            self._prev_gripper_button_state = button_pressed
+        
         # Check if we have enough axes/buttons
         max_axis_idx = max(
             self._idx_linear_x, self._idx_linear_y,
             self._idx_linear_z_axis2, self._idx_linear_z_axis5,
             self._idx_angular_x, self._idx_angular_y, self._idx_angular_z
         )
-        if len(msg.axes) <= max_axis_idx or len(msg.buttons) <= self._yaw_button_idx:
+        max_button_idx = max(
+            self._yaw_button_idx,
+            self._button_linear_inc, self._button_linear_dec,
+            self._button_angular_inc, self._button_angular_dec,
+            self._gripper_button_idx
+        )
+        if len(msg.axes) <= max_axis_idx or len(msg.buttons) <= max_button_idx:
             self.get_logger().warn_once(
                 f"Gamepad message has insufficient axes/buttons: "
                 f"axes={len(msg.axes)}, buttons={len(msg.buttons)}, "
-                f"required axes>={max_axis_idx+1}, buttons>={self._yaw_button_idx+1}"
+                f"required axes>={max_axis_idx+1}, buttons>={max_button_idx+1}"
             )
             return
         

@@ -36,6 +36,10 @@ gamepad_teleop:
     # Button index for yaw control
     yaw_button_index: 4
     
+    # Gripper control
+    gripper_button_index: 5    # Button index to toggle gripper (0 <-> 1)
+    gripper_topic: "/gripper/command"  # Topic to publish gripper commands
+    
     # Lock other axes when moving along Z axis
     # If true, when there's movement along Z (linear.z != 0), all other axes (x, y, roll, pitch, yaw) will be set to 0
     lock_other_axes_on_z_movement: true

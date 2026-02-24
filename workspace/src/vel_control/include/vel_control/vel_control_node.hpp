@@ -26,6 +26,7 @@ class VelControlNode : public rclcpp::Node {
  private:
   void update();
   void publishState();
+  void publishMarkers();
   void ping();
 
   /** Fill protobuf Output with Cartesian velocities (linear mm/s, angular deg/s). */

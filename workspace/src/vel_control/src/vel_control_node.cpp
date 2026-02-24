@@ -116,6 +116,7 @@ void VelControlNode::update() {
                        1.0, 1.0, outputs);
   }
   controller_->write(outputs);
+  publishMarkers();
 }
 
 void VelControlNode::publishState() {
@@ -147,6 +148,27 @@ void VelControlNode::publishState() {
     joint_state.position.push_back(joint_fb.values(i) * M_PI / 180.0);
   }
   joint_state_pub_->publish(joint_state);
+}
+
+void VelControlNode::publishMarkers() {
+  const auto& inputs = controller_->getInputs();
+  const auto& fb = inputs.feedback().robot().cartesian().pose();
+
+  geometry_msgs::msg::Point p;
+  p.x = fb.position().x() * 1e-3;
+  p.y = fb.position().y() * 1e-3;
+  p.z = fb.position().z() * 1e-3;
+  line_strip_.points.push_back(p);
+
+  constexpr size_t max_points = 10000;
+  if (line_strip_.points.size() > max_points) {
+    line_strip_.points.erase(
+        line_strip_.points.begin(),
+        line_strip_.points.begin() + (line_strip_.points.size() - max_points));
+  }
+
+  line_strip_.header.stamp = get_clock()->now();
+  marker_pub_->publish(line_strip_);
 }
 
 void VelControlNode::ping() {
