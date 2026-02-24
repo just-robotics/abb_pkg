@@ -1,7 +1,5 @@
 #include "vel_control/controller.hpp"
 
-#include <iostream>
-
 namespace vel_control {
 
 Controller::Controller(const Config& config) : config_(config) {}

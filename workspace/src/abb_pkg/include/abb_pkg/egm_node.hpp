@@ -31,41 +31,26 @@ class EgmNode : public rclcpp::Node {
 
     std::unique_ptr<abb_pkg::Controller> controller_;
     abb_pkg::Controller::Config config_;
-
-    // Action server
     rclcpp_action::Server<abb_pkg::action::MoveToPose>::SharedPtr action_server_;
-
-    // Subscribers
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-
-    // Publishers
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr ee_pose_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr ping_pub_;
-
-    // Timers
     rclcpp::TimerBase::SharedPtr update_timer_;
     rclcpp::TimerBase::SharedPtr state_pub_timer_;
     rclcpp::TimerBase::SharedPtr ping_timer_;
-
     visualization_msgs::msg::Marker line_strip_;
-
-    // Action execution state (thread-safe)
     std::mutex target_pose_mutex_;
-    std::vector<double> target_pose_;  // [x, y, z, rx, ry, rz] in mm and degrees
+    std::vector<double> target_pose_;
     std::atomic<bool> executing_action_{false};
     std::atomic<bool> cancel_requested_{false};
     std::shared_ptr<rclcpp_action::ServerGoalHandle<abb_pkg::action::MoveToPose>> current_goal_handle_;
-
-    // If controller status is temporarily not OK, don't fail immediately.
     std::optional<rclcpp::Time> status_not_ok_since_;
-
-    // cmd_vel: cache for building velocity output and last feedback pose for callback
     std::mutex cmd_vel_mutex_;
     geometry_msgs::msg::Twist last_cmd_vel_;
     std::optional<rclcpp::Time> last_cmd_vel_time_;
-    std::array<double, 6> last_feedback_pose_{};  // x,y,z,rx,ry,rz (mm, deg)
+    std::array<double, 6> last_feedback_pose_{};
     double cmd_vel_lin_gain_{1.0};
     double cmd_vel_ang_gain_{1.0};
     double cmd_vel_timeout_s_{0.15};
@@ -74,43 +59,26 @@ public:
     EgmNode();
 
 private:
-    // Action server callbacks
     rclcpp_action::GoalResponse handleGoal(
-        const rclcpp_action::GoalUUID & uuid,
+        const rclcpp_action::GoalUUID& uuid,
         std::shared_ptr<const abb_pkg::action::MoveToPose::Goal> goal);
-    
     rclcpp_action::CancelResponse handleCancel(
         const std::shared_ptr<rclcpp_action::ServerGoalHandle<abb_pkg::action::MoveToPose>> goal_handle);
-    
     void executeAction(
         const std::shared_ptr<rclcpp_action::ServerGoalHandle<abb_pkg::action::MoveToPose>> goal_handle);
 
-    // Main update loop
     void update();
-
-    // State publishing
     void publishState();
-
-    // Utility functions
     void publishMarkers();
-    void publishSphere(const std::vector<double>& pos, int id, float r, float g, float b);
     void initLineStrip();
     void ping();
-
-    // Convert quaternion to Euler angles (in degrees)
     std::vector<double> quaternionToEuler(const geometry_msgs::msg::Quaternion& quat);
-
-    // Convert position from meters to millimeters
     std::vector<double> poseToTarget(const geometry_msgs::msg::Point& position,
                                      const geometry_msgs::msg::Quaternion& orientation);
-
-    // Fill TCP velocity in EGM output (linear mm/s, angular deg/s; gains applied inside)
     void fillVelocityOutput(double dx, double dy, double dz,
-                           double drx, double dry, double drz,
-                           double lin_gain, double ang_gain,
-                           abb::egm::wrapper::Output& outputs);
-
-    // cmd_vel subscription callback: build output with pose + velocity and send to robot
+                            double drx, double dry, double drz,
+                            double lin_gain, double ang_gain,
+                            abb::egm::wrapper::Output& outputs);
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
 };
 

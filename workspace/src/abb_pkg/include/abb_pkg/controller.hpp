@@ -7,8 +7,6 @@
 
 #include <boost/asio/io_service.hpp>
 #include <kdl/chain.hpp>
-#include <kdl/chainfksolverpos_recursive.hpp>
-#include <kdl/frames.hpp>
 #include <kdl/jntarray.hpp>
 #include <memory>
 #include <string>
@@ -42,15 +40,6 @@ class Controller {
     double joint_tolerance;
   };
 
-  struct State {
-    double x = 0.0;
-    double y = 0.0;
-    double z = 0.0;
-    double rx = 0.0;
-    double ry = 0.0;
-    double rz = 0.0;
-  };
-
  private:
   Config config_;
 
@@ -73,25 +62,10 @@ class Controller {
 
   bool stepToward(const std::vector<double>& target,
                   abb::egm::wrapper::Output& output);
-  bool stepTowardJoints(const std::vector<double>& target_q,
-                        abb::egm::wrapper::Output& output, double dq_limit,
-                        double tolerance);
 
   void write(const abb::egm::wrapper::Output& output);
 
-  std::vector<std::vector<double>> generateCircle();
-  std::vector<std::vector<double>> generateLine();
-
-  std::vector<std::vector<double>> trajectoryToJoints(
-      const std::vector<std::vector<double>>& traj);
-
-  State getCurrentState() const;
   abb::egm::wrapper::Input getInputs() const { return inputs_; }
-
-  bool isInitialized() const;
-
-  // Test function: compare FK with EGM feedback
-  void testFKvsEGM() const;
 };
 
 }  // namespace abb_pkg

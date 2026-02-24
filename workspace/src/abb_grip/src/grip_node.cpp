@@ -21,14 +21,10 @@ public:
     udp_sender_ = std::make_shared<UdpSender>(gripper_ip_, gripper_port_);
 
     sub_ = create_subscription<std_msgs::msg::String>(
-        "gripper/command",
-        10,
+        "gripper/command", 10,
         [this](const std_msgs::msg::String::SharedPtr msg) {
           this->onCommand(msg->data);
         });
-
-    RCLCPP_INFO(get_logger(), "Gripper node: %s:%d, subscribed to gripper/command",
-        gripper_ip_.c_str(), gripper_port_);
   }
 
 private:

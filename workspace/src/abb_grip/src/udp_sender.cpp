@@ -32,7 +32,6 @@ UdpSender::UdpSender(const std::string& host, int port)
     return;
   }
   target_endpoint_ = *results.begin();
-  std::cout << "[Gripper] Sending UDP to " << host << ":" << port << std::endl;
 }
 
 void UdpSender::send(const std::string& data)
