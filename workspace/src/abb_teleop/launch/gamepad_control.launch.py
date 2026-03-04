@@ -10,7 +10,7 @@ def generate_launch_description():
     
     # Get paths to config files
     gamepad_config_file = os.path.join(
-        get_package_share_directory("abb_lerobot"),
+        get_package_share_directory("abb_teleop"),
         "config",
         "gamepad_teleop.yaml"
     )
@@ -55,7 +55,7 @@ def generate_launch_description():
         
         # Gamepad teleop node
         Node(
-            package="abb_lerobot",
+            package="abb_teleop",
             executable="gamepad_teleop",
             name="gamepad_teleop",
             output="screen",

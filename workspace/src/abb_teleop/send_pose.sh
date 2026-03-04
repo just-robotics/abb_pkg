@@ -6,4 +6,4 @@
 cd "$(dirname "$0")/../.."
 source install/setup.bash
 
-python3 src/abb_lerobot/abb_lerobot/send_pose.py "$@"
+python3 src/abb_teleop/abb_teleop/send_pose.py "$@"

@@ -1,173 +1,178 @@
 #!/usr/bin/env python3
 
-import json
 import os
-import time
-from dataclasses import dataclass
-from typing import Optional
-
+import json
+import cv2
 import rclpy
+import time
+
 from rclpy.node import Node
-
+from sensor_msgs.msg import Image, JointState
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 
-
-def _to_sec(stamp) -> float:
-    return float(stamp.sec) + float(stamp.nanosec) * 1e-9
-
-
-@dataclass
-class Snapshot:
-    joint: Optional[JointState] = None
-    ee_pose: Optional[PoseStamped] = None
-    target_pose: Optional[PoseStamped] = None
-    last_success: Optional[Bool] = None
-    last_message: Optional[String] = None
+from cv_bridge import CvBridge
+from message_filters import Subscriber, ApproximateTimeSynchronizer
 
 
 class DatasetRecorder(Node):
-    """
-    Minimal dataset recorder for abb_pkg + lerobot bridge.
-
-    Records time-series samples to JSONL:
-      obs: joint_states + ee_pose
-      action: latest target_pose
-      result: last_success/last_message (from move_to_pose bridge)
-    """
-
     def __init__(self):
-        super().__init__("abb_dataset_recorder")
+        super().__init__("dataset_recorder")
 
-        self.declare_parameter("output_dir", "./dataset")
-        self.declare_parameter("file_name", "dataset.jsonl")
-        self.declare_parameter("rate_hz", 10.0)
+        self.bridge = CvBridge()
 
+        # Parameters
+        self.declare_parameter("dataset_root", "dataset")
+        self.declare_parameter("image_topic", "/image_raw")
         self.declare_parameter("joint_states_topic", "/joint_states")
         self.declare_parameter("ee_pose_topic", "/ee_pose")
         self.declare_parameter("target_pose_topic", "/target_pose")
-        self.declare_parameter("last_success_topic", "/move_to_pose/last_success")
-        self.declare_parameter("last_message_topic", "/move_to_pose/last_message")
+        self.declare_parameter("gripper_topic", "/gripper/command")
+        self.declare_parameter("sync_slop", 0.1)
+        self.declare_parameter("sync_queue_size", 20)
 
-        out_dir = self.get_parameter("output_dir").get_parameter_value().string_value
-        file_name = self.get_parameter("file_name").get_parameter_value().string_value
-        self._rate_hz = self.get_parameter("rate_hz").get_parameter_value().double_value
+        self.dataset_root = (
+            self.get_parameter("dataset_root").get_parameter_value().string_value
+        )
+        os.makedirs(self.dataset_root, exist_ok=True)
 
-        self._joint_topic = self.get_parameter("joint_states_topic").value
-        self._ee_pose_topic = self.get_parameter("ee_pose_topic").value
-        self._target_pose_topic = self.get_parameter("target_pose_topic").value
-        self._last_success_topic = self.get_parameter("last_success_topic").value
-        self._last_message_topic = self.get_parameter("last_message_topic").value
+        self.episode_idx = 0
+        self.frame_idx = 0
 
-        os.makedirs(out_dir, exist_ok=True)
-        self._path = os.path.join(out_dir, file_name)
-        self._fh = open(self._path, "a", encoding="utf-8")
+        self.start_new_episode()
 
-        self._snap = Snapshot()
+        # Subscribers
+        image_topic = (
+            self.get_parameter("image_topic").get_parameter_value().string_value
+        )
+        joint_topic = (
+            self.get_parameter("joint_states_topic")
+            .get_parameter_value()
+            .string_value
+        )
+        ee_topic = (
+            self.get_parameter("ee_pose_topic").get_parameter_value().string_value
+        )
+        target_topic = (
+            self.get_parameter("target_pose_topic")
+            .get_parameter_value()
+            .string_value
+        )
+        gripper_topic = (
+            self.get_parameter("gripper_topic").get_parameter_value().string_value
+        )
 
-        self.create_subscription(JointState, self._joint_topic, self._on_joint, 50)
-        self.create_subscription(PoseStamped, self._ee_pose_topic, self._on_pose, 50)
-        self.create_subscription(PoseStamped, self._target_pose_topic, self._on_target, 50)
-        self.create_subscription(Bool, self._last_success_topic, self._on_success, 10)
-        self.create_subscription(String, self._last_message_topic, self._on_message, 10)
+        self.image_sub = Subscriber(self, Image, image_topic)
+        self.joint_sub = Subscriber(self, JointState, joint_topic)
+        self.ee_sub = Subscriber(self, PoseStamped, ee_topic)
+        self.target_sub = Subscriber(self, PoseStamped, target_topic)
+        self.gripper_sub = Subscriber(self, String, gripper_topic)
 
-        period = 1.0 / self._rate_hz if self._rate_hz > 0 else 0.1
-        self._timer = self.create_timer(period, self._tick)
+        sync_slop = (
+            self.get_parameter("sync_slop").get_parameter_value().double_value
+        )
+        sync_queue_size = (
+            self.get_parameter("sync_queue_size")
+            .get_parameter_value()
+            .integer_value
+        )
 
-        self.get_logger().info(f"Recording to: {self._path} @ {self._rate_hz} Hz")
+        self.sync = ApproximateTimeSynchronizer(
+            [
+                self.image_sub,
+                self.joint_sub,
+                self.ee_sub,
+                self.target_sub,
+                self.gripper_sub,
+            ],
+            queue_size=sync_queue_size,
+            slop=sync_slop,
+        )
 
-    def destroy_node(self):
+        self.sync.registerCallback(self.callback)
+
+        self.get_logger().info("Dataset recorder started")
+        self.get_logger().info(f"Dataset root: {self.dataset_root}")
+        self.get_logger().info(
+            f"Subscribing to: {image_topic}, {joint_topic}, {ee_topic}, {target_topic}, {gripper_topic}"
+        )
+
+    def start_new_episode(self):
+
+        self.episode_idx += 1
+        self.frame_idx = 0
+
+        self.episode_dir = os.path.join(
+            self.dataset_root, f"episode_{self.episode_idx:06d}"
+        )
+
+        os.makedirs(self.episode_dir, exist_ok=True)
+
+        self.json_file = open(
+            os.path.join(self.episode_dir, "data.jsonl"), "w", encoding="utf-8"
+        )
+
+        self.get_logger().info(f"Started episode {self.episode_idx}")
+
+    def callback(self, img, joints, ee_pose, target_pose, gripper):
+
+        timestamp = time.time()
+
+        # Convert image
         try:
-            if self._fh:
-                self._fh.flush()
-                self._fh.close()
-        finally:
-            super().destroy_node()
+            cv_img = self.bridge.imgmsg_to_cv2(img, desired_encoding="bgr8")
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"Failed to convert image: {e}")
+            return
 
-    def _on_joint(self, msg: JointState):
-        self._snap.joint = msg
+        image_name = f"frame_{self.frame_idx:06d}.png"
+        image_path = os.path.join(self.episode_dir, image_name)
 
-    def _on_pose(self, msg: PoseStamped):
-        self._snap.ee_pose = msg
+        cv2.imwrite(image_path, cv_img)
 
-    def _on_target(self, msg: PoseStamped):
-        self._snap.target_pose = msg
-
-    def _on_success(self, msg: Bool):
-        self._snap.last_success = msg
-
-    def _on_message(self, msg: String):
-        self._snap.last_message = msg
-
-    def _tick(self):
-        js = self._snap.joint
-        pose = self._snap.ee_pose
-        target = self._snap.target_pose
-
-        if js is None or pose is None:
-            return  # no obs yet
-
-        # Build sample
-        sample = {
-            "t_wall": time.time(),
-            "t_joint": _to_sec(js.header.stamp) if js.header.stamp else None,
-            "t_pose": _to_sec(pose.header.stamp) if pose.header.stamp else None,
-            "obs": {
-                "joint": {
-                    "name": list(js.name),
-                    "position": list(js.position),
-                    "velocity": list(js.velocity) if js.velocity else [],
-                    "effort": list(js.effort) if js.effort else [],
-                },
-                "ee_pose": {
-                    "frame_id": pose.header.frame_id,
-                    "position": {
-                        "x": pose.pose.position.x,
-                        "y": pose.pose.position.y,
-                        "z": pose.pose.position.z,
-                    },
-                    "orientation": {
-                        "x": pose.pose.orientation.x,
-                        "y": pose.pose.orientation.y,
-                        "z": pose.pose.orientation.z,
-                        "w": pose.pose.orientation.w,
-                    },
-                },
-            },
-            "action": None,
-            "result": None,
+        obs = {
+            "image": image_name,
+            "joint_positions": list(joints.position) if joints.position else [],
+            "joint_velocities": list(joints.velocity) if joints.velocity else [],
+            "ee_pose": [
+                ee_pose.pose.position.x,
+                ee_pose.pose.position.y,
+                ee_pose.pose.position.z,
+                ee_pose.pose.orientation.x,
+                ee_pose.pose.orientation.y,
+                ee_pose.pose.orientation.z,
+                ee_pose.pose.orientation.w,
+            ],
         }
 
-        if target is not None:
-            sample["action"] = {
-                "frame_id": target.header.frame_id,
-                "position": {
-                    "x": target.pose.position.x,
-                    "y": target.pose.position.y,
-                    "z": target.pose.position.z,
-                },
-                "orientation": {
-                    "x": target.pose.orientation.x,
-                    "y": target.pose.orientation.y,
-                    "z": target.pose.orientation.z,
-                    "w": target.pose.orientation.w,
-                },
-            }
+        action = {
+            "target_pose": [
+                target_pose.pose.position.x,
+                target_pose.pose.position.y,
+                target_pose.pose.position.z,
+                target_pose.pose.orientation.x,
+                target_pose.pose.orientation.y,
+                target_pose.pose.orientation.z,
+                target_pose.pose.orientation.w,
+            ],
+            "gripper": gripper.data if gripper.data else "0",
+        }
 
-        if self._snap.last_success is not None or self._snap.last_message is not None:
-            sample["result"] = {
-                "success": bool(self._snap.last_success.data)
-                if self._snap.last_success is not None
-                else None,
-                "message": self._snap.last_message.data
-                if self._snap.last_message is not None
-                else None,
-            }
+        record = {
+            "timestamp": timestamp,
+            "obs": obs,
+            "action": action,
+        }
 
-        self._fh.write(json.dumps(sample, ensure_ascii=False) + "\n")
-        # Flush lightly to reduce data loss on crash
-        self._fh.flush()
+        self.json_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self.json_file.flush()
+
+        self.frame_idx += 1
+
+    def destroy_node(self):
+        if hasattr(self, "json_file") and self.json_file:
+            self.json_file.close()
+        super().destroy_node()
 
 
 def main(args=None):
@@ -176,7 +181,7 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("Shutting down...")
     finally:
         node.destroy_node()
         rclpy.shutdown()

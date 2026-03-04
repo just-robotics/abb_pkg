@@ -14,6 +14,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       # - /dev/input/by-id/usb-Microsoft_Controller_3039373130303330373636343135-joystick:/dev/input/js0
       - /dev/input:/dev/input
+      - ../workspace/src:/workspace/src:rw
 
     network_mode: host
 
