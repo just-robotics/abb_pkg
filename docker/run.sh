@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker compose up -d
+docker compose --project-name abb up -d

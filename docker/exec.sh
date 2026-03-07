@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker compose exec abb bash
+docker compose --project-name abb exec abb bash

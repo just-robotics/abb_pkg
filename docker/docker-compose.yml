@@ -4,22 +4,43 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     image: abb
+    network_mode: host
+    ipc: host
+    privileged: true
 
-    environment:
-      - DISPLAY=$DISPLAY
-      - QT_X11_NO_MITSHM=1
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
 
-    working_dir: /workspace
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # - /dev/input/by-id/usb-Microsoft_Controller_3039373130303330373636343135-joystick:/dev/input/js0
+      - /etc/localtime:/etc/localtime:ro
+      - ${HOME}/.Xauthority:/root/.Xauthority:ro
       - /dev/input:/dev/input
       - ../workspace/src:/workspace/src:rw
 
-    network_mode: host
+    environment:
+      - ROS_LOCALHOST_ONLY=0
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=/root/.Xauthority
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
-    privileged: true
-
+    working_dir: /workspace
+    
     tty: true
     stdin_open: true
     entrypoint: []
+
+    healthcheck:
+      test: ["CMD", "ros2", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
