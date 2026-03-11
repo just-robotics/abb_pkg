@@ -18,6 +18,7 @@ def generate_launch_description():
                         "ee_pose_topic": "/ee_pose",
                         "target_pose_topic": "/target_pose",
                         "gripper_topic": "/gripper/command",
+                        "start_episode_topic": "~/start_episode",
                     }
                 ],
             ),

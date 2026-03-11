@@ -9,10 +9,16 @@ import time
 from rclpy.node import Node
 from sensor_msgs.msg import Image, JointState
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import String
+from std_msgs.msg import String, Empty
 
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
+
+from abb_lerobot.schema import (
+    SCHEMA_VERSION,
+    build_observation_state,
+    gripper_command_to_numeric,
+)
 
 
 class DatasetRecorder(Node):
@@ -30,6 +36,7 @@ class DatasetRecorder(Node):
         self.declare_parameter("gripper_topic", "/gripper/command")
         self.declare_parameter("sync_slop", 0.1)
         self.declare_parameter("sync_queue_size", 20)
+        self.declare_parameter("start_episode_topic", "~/start_episode")
 
         self.dataset_root = (
             self.get_parameter("dataset_root").get_parameter_value().string_value
@@ -91,10 +98,25 @@ class DatasetRecorder(Node):
 
         self.sync.registerCallback(self.callback)
 
+        start_episode_topic = (
+            self.get_parameter("start_episode_topic")
+            .get_parameter_value()
+            .string_value
+        )
+        self.start_episode_sub = self.create_subscription(
+            Empty,
+            start_episode_topic,
+            self._start_episode_callback,
+            1,
+        )
+
         self.get_logger().info("Dataset recorder started")
         self.get_logger().info(f"Dataset root: {self.dataset_root}")
         self.get_logger().info(
             f"Subscribing to: {image_topic}, {joint_topic}, {ee_topic}, {target_topic}, {gripper_topic}"
+        )
+        self.get_logger().info(
+            f"Start new episode topic: {start_episode_topic} (publish Empty to begin new episode)"
         )
 
     def start_new_episode(self):
@@ -113,6 +135,13 @@ class DatasetRecorder(Node):
         )
 
         self.get_logger().info(f"Started episode {self.episode_idx}")
+
+    def _start_episode_callback(self, _msg):
+        """On start_episode topic: close current episode and start a new one."""
+        if hasattr(self, "json_file") and self.json_file:
+            self.json_file.close()
+            self.json_file = None
+        self.start_new_episode()
 
     def callback(self, img, joints, ee_pose, target_pose, gripper):
 
@@ -145,6 +174,23 @@ class DatasetRecorder(Node):
             ],
         }
 
+        gripper_numeric = gripper_command_to_numeric(
+            gripper.data if gripper.data else "0"
+        )
+        obs["state"] = build_observation_state(
+            list(joints.position) if joints.position else [],
+            [
+                ee_pose.pose.position.x,
+                ee_pose.pose.position.y,
+                ee_pose.pose.position.z,
+                ee_pose.pose.orientation.x,
+                ee_pose.pose.orientation.y,
+                ee_pose.pose.orientation.z,
+                ee_pose.pose.orientation.w,
+            ],
+            gripper_numeric,
+        )
+
         action = {
             "target_pose": [
                 target_pose.pose.position.x,
@@ -155,10 +201,11 @@ class DatasetRecorder(Node):
                 target_pose.pose.orientation.z,
                 target_pose.pose.orientation.w,
             ],
-            "gripper": gripper.data if gripper.data else "0",
+            "gripper": gripper_numeric,
         }
 
         record = {
+            "schema_version": SCHEMA_VERSION,
             "timestamp": timestamp,
             "obs": obs,
             "action": action,
