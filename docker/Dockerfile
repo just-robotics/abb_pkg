@@ -32,7 +32,7 @@ RUN apt update -y && \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install setuptools==58.2.0 pypylon lerobot[all]
+RUN python3 -m pip install setuptools==58.2.0 pypylon
 
 COPY ../workspace /workspace
 
