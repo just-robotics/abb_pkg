@@ -16,7 +16,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
     ],
-    install_requires=["setuptools"],
+    install_requires=["setuptools", "pyarrow", "numpy", "opencv-python-headless"],
     zip_safe=True,
     maintainer="user",
     maintainer_email="artemkondratev5@gmail.com",
@@ -26,6 +26,8 @@ setup(
     entry_points={
         "console_scripts": [
             "dataset_recorder = abb_lerobot.dataset_recorder:main",
+            "convert_to_lerobot = abb_lerobot.convert_to_lerobot:main",
+            "validate_dataset = abb_lerobot.validate_dataset:main",
         ],
     },
 )
