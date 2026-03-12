@@ -1,0 +1,61 @@
+# Эмулятор облака точек 3D лидара мобильного робота рядом с манипулятором
+# TF стыковка: world -> base_link (манипулятор), world -> robot_base_link -> lidar_link
+
+point_cloud_emulator:
+  ros__parameters:
+    # --- TF frames (стыковка с миром манипулятора) ---
+    world_frame: "world"
+    manipulator_base_frame: "base_link"
+    robot_base_frame: "robot_base_link"
+    lidar_frame: "lidar_link"
+
+    # --- Поза мобильного робота в world (рядом с манипулятором): x,y,z [м], roll,pitch,yaw [град] ---
+    robot_base_in_world:
+      x: 1.5
+      y: 0.0
+      z: 0.0
+      roll: 0.0
+      pitch: 0.0
+      yaw: 0.0
+
+    # --- Поза лидара относительно robot_base_link: x,y,z [м], roll,pitch,yaw [град] ---
+    lidar_in_robot_base:
+      x: 0.0
+      y: 0.0
+      z: 0.3
+      roll: 0.0
+      pitch: 0.0
+      yaw: 0.0
+
+    # --- Топик и частота публикации облака ---
+    point_cloud_topic: "lidar/points"
+    publish_rate_hz: 10.0
+
+    # --- Параметры эмулированного облака (как у типичного 3D лидара) ---
+    num_points: 20000
+    range_min_m: 0.3
+    range_max_m: 30.0
+    # Горизонтальный FOV (азимут), градусы: 360 = полный оборот
+    horizontal_fov_deg: 360.0
+    # Вертикальный FOV, градусы (например -15..+15)
+    vertical_fov_min_deg: -15.0
+    vertical_fov_max_deg: 15.0
+    # Случайный шум по дальности, метры
+    range_noise_std: 0.01
+    # Случайный шум по углу, радианы
+    angle_noise_std: 0.0005
+
+    # --- Пол: точки в мировой системе на высоте z [м] ---
+    floor_z: 0.25
+    floor_x_min: -2.0
+    floor_x_max: 4.0
+    floor_y_min: -2.0
+    floor_y_max: 2.0
+    floor_point_step: 0.02
+
+    # --- Препятствия: сферы в world (x, y, z [м], radius [м]) ---
+    # Строки формата: "x y z radius"
+    obstacle_spheres:
+      - "1.0 0.0 0.5 0.2"
+      - "2.0 0.5 0.6 0.15"
+      - "2.0 -0.5 0.4 0.1"

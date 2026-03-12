@@ -1,0 +1,10 @@
+<library path="rrt_start_goal_panel">
+  <class
+    name="rrt_rviz_panel/StartGoalPanel"
+    type="rrt_rviz_panel::StartGoalPanel"
+    base_class_type="rviz_common::Panel">
+    <description>
+      RViz2 panel for publishing start and goal PointStamped messages.
+    </description>
+  </class>
+</library>

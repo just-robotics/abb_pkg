@@ -1,0 +1,32 @@
+rrt_3d_planner_node:
+  ros__parameters:
+    world_frame: "world"
+    points_topic: "lidar/points"
+    start_topic: "/start_point"
+    goal_topic: "/goal_point"
+    path_topic: "/planned_path"
+
+    voxel_size: 0.05
+    robot_radius: 0.10
+
+    step_size: 0.20
+    goal_bias: 0.10
+    goal_tolerance: 0.20
+    max_iterations: 3000
+    collision_step: 0.05
+
+    x_min: -2.0
+    x_max: 4.0
+    y_min: -2.0
+    y_max: 2.0
+    z_min: 0.0
+    z_max: 2.0
+
+    use_voxel_filter: false
+    voxel_filter_leaf_size: 0.03
+    use_crop_box: true
+
+    enable_smoothing: true
+    smoothing_iterations: 100
+
+    max_voxel_marker_points: 50000
