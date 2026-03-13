@@ -1,10 +1,12 @@
 rrt_3d_planner_node:
   ros__parameters:
     world_frame: "world"
-    points_topic: "lidar/points"
-    start_topic: "/start_point"
+    points_topic: "caterwil/livox_mid360/points"
+    ee_pose_topic: "/ee_pose"
     goal_topic: "/goal_point"
     path_topic: "/planned_path"
+    map_lock_topic: "/lock_map"
+    locked_voxels_topic: "/locked_voxel_markers"
 
     voxel_size: 0.05
     robot_radius: 0.10

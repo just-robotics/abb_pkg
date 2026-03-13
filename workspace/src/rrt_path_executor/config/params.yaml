@@ -1,0 +1,14 @@
+rrt_path_executor_node:
+  ros__parameters:
+    path_topic: "/planned_path"
+    send_path_topic: "/send_path"
+    send_pose_script: "/workspace/src/send_pose.sh"
+
+    default_roll_deg: 180.0
+    default_pitch_deg: 0.0
+    default_yaw_deg: -90.0
+    use_pose_orientation: false
+
+    call_timeout_sec: 30.0
+    pause_between_points_sec: 0.1
+    stop_on_failure: true

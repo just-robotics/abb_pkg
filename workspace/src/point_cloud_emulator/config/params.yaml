@@ -29,7 +29,7 @@ point_cloud_emulator:
 
     # --- Топик и частота публикации облака ---
     point_cloud_topic: "lidar/points"
-    publish_rate_hz: 10.0
+    publish_rate_hz: 20.0
 
     # --- Параметры эмулированного облака (как у типичного 3D лидара) ---
     num_points: 20000
@@ -56,6 +56,6 @@ point_cloud_emulator:
     # --- Препятствия: сферы в world (x, y, z [м], radius [м]) ---
     # Строки формата: "x y z radius"
     obstacle_spheres:
-      - "1.0 0.0 0.5 0.2"
-      - "2.0 0.5 0.6 0.15"
-      - "2.0 -0.5 0.4 0.1"
+      - "1.0 0.0 1.0 0.2"
+      # - "2.0 0.5 0.6 0.15"
+      # - "2.0 -0.5 0.4 0.1"

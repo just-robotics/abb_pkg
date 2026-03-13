@@ -14,6 +14,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(rviz_common REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets)
@@ -30,6 +31,7 @@ target_include_directories(rrt_start_goal_panel PUBLIC
 ament_target_dependencies(rrt_start_goal_panel
   rclcpp
   geometry_msgs
+  std_msgs
   rviz_common
   pluginlib
 )
