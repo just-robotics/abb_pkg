@@ -22,6 +22,9 @@ Visualization Manager:
         Interactive Marker Size: 0.2
         Query Goal State: true
         Query Start State: false
+        # the ABB meshes are orange like MoveIt's default goal color
+        Goal State Color: 0; 200; 0
+        Goal State Alpha: 0.5
       Planned Path:
         Loop Animation: false
         Show Robot Visual: true
