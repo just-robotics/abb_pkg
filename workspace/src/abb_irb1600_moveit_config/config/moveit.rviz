@@ -31,7 +31,7 @@ Visualization Manager:
       Planning Request:
         Planning Group: manipulator
         Interactive Marker Size: 0.2
-        Query Goal State: true
+        Query Goal State: false
         Query Start State: false
         # the ABB meshes are orange like MoveIt's default goal color
         Goal State Color: 0; 200; 0

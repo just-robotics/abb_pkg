@@ -88,10 +88,12 @@ MILL_SURFACE_Z = TABLE_HEIGHT + 0.06
 MILL_AREA = ((0.87, 1.03), (-0.15, 0.15))   # x range, y range
 MILL_STEP = 0.02
 
-# Laser: contour above the sheet
+# Laser: a five-pointed star in a circle, nozzle at a fixed standoff above the sheet
 LASER_SURFACE_Z = TABLE_HEIGHT + 0.005
 LASER_STANDOFF = 0.01
 LASER_CENTER = (0.55, 0.75)
-LASER_RADIUS = 0.1
+LASER_RADIUS = 0.1           # circle
+LASER_STAR_RADIUS = 0.085    # star tips
+LASER_STAR_INNER = 0.382     # inner corners of a regular star: cos(72) / cos(36) of the tips
 
 APPROACH_HEIGHT = 0.12   # above grasp / work start, reached with a collision-free motion

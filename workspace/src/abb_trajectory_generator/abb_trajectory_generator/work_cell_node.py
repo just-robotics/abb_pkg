@@ -6,11 +6,13 @@ Status for the RViz panel: ~/status (std_msgs/String, latched).
 
 The cell is added to the planning scene as collision objects; a held tool is
 attached to tool0, so MoveIt plans with it. Visuals go to ~/markers: the held
-tool is drawn in the tool0 frame, so it follows the robot smoothly via TF.
+tool and the laser beam are drawn in the tool0 frame, so they follow the robot
+via TF.
 """
 
 import math
 import threading
+import time
 
 import rclpy
 from geometry_msgs.msg import Point, Pose
@@ -30,8 +32,10 @@ from abb_trajectory_generator.moveit_client import MoveItClient, make_pose, rpy_
 WORLD = 'world'
 EE_LINK = 'tool0'
 TOUCH_LINKS = ['tool0', 'flange', 'link_6', 'link_5']
-TRACE_MAX_POINTS = 20000
-TRACE_MIN_STEP = 0.002
+TRACE_MAX_POINTS = 10000     # per tool, oldest strokes are dropped
+TRACE_MIN_STEP = 0.001
+LEAD_IN_HEIGHT = 0.03        # tool lift between contours
+SETTLE_TIME_S = 0.3          # after a stop, before the retract is planned
 
 
 def tool_id(tool):
@@ -76,7 +80,9 @@ class WorkCell(Node):
         self.working = False
         self.process_on = False
         self.state = 'ожидание move_group'
+        # machining trace per tool: strokes (lists of tip points) with the process on
         self.traces = {name: [] for name in cell.TOOLS}
+        self.stroke = None
 
         for name, callback in (('take_mill', lambda: self.on_take('mill')),
                                ('take_laser', lambda: self.on_take('laser')),
@@ -86,7 +92,8 @@ class WorkCell(Node):
             self.create_service(Trigger, f'~/{name}',
                                 lambda _req, res, cb=callback: self.respond(res, *cb()))
 
-        self.create_timer(0.05, self.on_timer)
+        self.create_timer(0.02, self.on_sample)
+        self.create_timer(0.1, self.on_publish_markers)
 
         self.busy.acquire()
         threading.Thread(target=self.run, args=(self.setup_scene,), daemon=True).start()
@@ -119,7 +126,7 @@ class WorkCell(Node):
         if not self.working:
             return False, 'работа не идёт'
         self.stop_event.set()
-        self.moveit.cancel()
+        self.moveit.stop()
         return True, 'останавливаю'
 
     def submit(self, job, *args):
@@ -188,8 +195,7 @@ class WorkCell(Node):
 
         self.set_state(f'беру: {tool.label}')
         above, grasp = self.slot_poses(tool)
-        ok, message = self.moveit.move_to_pose(
-            above, self.velocity_scaling, self.acceleration_scaling)
+        ok, message = self.move(above)
         if not ok:
             return False, message
         # The last centimetres touch the tool and its holder on purpose.
@@ -209,8 +215,7 @@ class WorkCell(Node):
         tool = cell.TOOLS[self.held]
         self.set_state(f'снимаю: {tool.label}')
         above, grasp = self.slot_poses(tool)
-        ok, message = self.moveit.move_to_pose(
-            above, self.velocity_scaling, self.acceleration_scaling)
+        ok, message = self.move(above)
         if not ok:
             return False, message
         ok, message = self.path([grasp], avoid_collisions=False)
@@ -241,6 +246,7 @@ class WorkCell(Node):
         self.set_state('останавливаю')
         self.process_on = False
         self.working = False
+        time.sleep(SETTLE_TIME_S)
         return self.retract()
 
     def milling(self, tool):
@@ -253,56 +259,63 @@ class WorkCell(Node):
             x = x0 + i * cell.MILL_STEP
             ys = (y0, y1) if i % 2 == 0 else (y1, y0)
             points += [(x, ys[0]), (x, ys[1])]
-        return self.process_contours([points], z)
+        return self.process_contours([(points, True)], z)
 
     def laser_cutting(self, tool):
-        """A star inside a circle, nozzle at a fixed standoff above the sheet."""
+        """A five-pointed star inside a circle, both starting at the top."""
         z = cell.LASER_SURFACE_Z + cell.LASER_STANDOFF + tool.tip
         cx, cy = cell.LASER_CENTER
-        r = cell.LASER_RADIUS
-        circle = [(cx + r * math.cos(2 * math.pi * i / 72), cy + r * math.sin(2 * math.pi * i / 72))
-                  for i in range(73)]
-        star = []
-        for i in range(11):
-            radius = 0.8 * r if i % 2 == 0 else 0.32 * r
-            angle = math.pi / 2 + math.pi * i / 5
-            star.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle)))
-        return self.process_contours([circle, star], z)
+
+        def polar(radius, angle):
+            return cx + radius * math.cos(angle), cy + radius * math.sin(angle)
+
+        circle = [polar(cell.LASER_RADIUS, math.pi / 2 + 2 * math.pi * i / 90) for i in range(91)]
+        star = [polar(cell.LASER_STAR_RADIUS * (1.0 if i % 2 == 0 else cell.LASER_STAR_INNER),
+                      math.pi / 2 + math.pi * i / 5)
+                for i in range(11)]
+        return self.process_contours([(circle, False), (star, True)], z)
 
     def process_contours(self, contours, z):
-        """Approach, run each contour at height z with the process on, retract."""
-        start = contours[0][0]
+        """Cut contours at height z: approach from above, process on along each contour,
+        process off for the moves between contours, retract at the end.
+
+        contours: list of (points, sharp). A sharp contour stops at every vertex, so its
+        corners stay corners; a smooth one (circle) runs as a single path.
+        """
         if self.stop_event.is_set():
             return True, ''
-        ok, message = self.moveit.move_to_pose(
-            self.pose(start[0], start[1], z + cell.APPROACH_HEIGHT),
-            self.velocity_scaling, self.acceleration_scaling)
+        x, y = contours[0][0][0]
+        ok, message = self.move(self.pose(x, y, z + cell.APPROACH_HEIGHT))
         if not ok:
             return False, message
 
-        for i, contour in enumerate(contours):
-            if self.stop_event.is_set():
-                return True, ''
-            x, y = contour[0]
-            if i == 0:
+        previous = None
+        for points, sharp in contours:
+            x, y = points[0]
+            if previous is None:
                 lead_in = [self.pose(x, y, z)]
             else:
-                px, py = contours[i - 1][-1]
-                lead_in = [self.pose(px, py, z + 0.03), self.pose(x, y, z + 0.03),
-                           self.pose(x, y, z)]
+                px, py = previous
+                lead_in = [self.pose(px, py, z + LEAD_IN_HEIGHT),
+                           self.pose(x, y, z + LEAD_IN_HEIGHT), self.pose(x, y, z)]
             ok, message = self.path(lead_in, avoid_collisions=False)
             if not ok:
                 return False, message
 
+            cut = [[self.pose(px, py, z)] for px, py in points[1:]] if sharp \
+                else [[self.pose(px, py, z) for px, py in points[1:]]]
             self.process_on = True
-            ok, message = self.path(
-                [self.pose(px, py, z) for px, py in contour[1:]],
-                avoid_collisions=False, velocity_scaling=self.process_velocity_scaling)
-            self.process_on = False
-            if not ok:
-                return False, message
+            try:
+                for waypoints in cut:
+                    ok, message = self.path(waypoints, avoid_collisions=False,
+                                            velocity_scaling=self.process_velocity_scaling)
+                    if not ok:
+                        return False, message
+            finally:
+                self.process_on = False
+            previous = points[-1]
 
-        x, y = contours[-1][-1]
+        x, y = previous
         return self.path([self.pose(x, y, z + cell.APPROACH_HEIGHT)], avoid_collisions=False)
 
     def retract(self):
@@ -313,6 +326,18 @@ class WorkCell(Node):
         up = make_pose(current.position.x, current.position.y,
                        current.position.z + cell.APPROACH_HEIGHT, self.tool_down)
         return self.path([up], avoid_collisions=False)
+
+    def move(self, pose):
+        """Collision-free motion to pose.
+
+        IK starts from the current arm configuration with joint_1 already turned towards
+        the target, so the robot keeps its elbow and wrist configuration on the way.
+        """
+        if self.working and self.stop_event.is_set():
+            return False, 'остановлено'
+        seed = {'joint_1': math.atan2(pose.position.y, pose.position.x)}
+        return self.moveit.move_to_pose(
+            pose, self.velocity_scaling, self.acceleration_scaling, seed)
 
     def path(self, waypoints, avoid_collisions=True, velocity_scaling=None):
         if self.working and self.stop_event.is_set():
@@ -408,25 +433,37 @@ class WorkCell(Node):
         p = pose.position
         return Point(x=p.x + zx * tip, y=p.y + zy * tip, z=p.z + zz * tip)
 
-    def on_timer(self):
-        tip = self.tip_point() if self.process_on else None
-        if tip is not None:
-            trace = self.traces[self.held]
-            last = trace[-1] if trace else None
-            if last is None or math.dist((last.x, last.y, last.z),
-                                         (tip.x, tip.y, tip.z)) > TRACE_MIN_STEP:
-                trace.append(tip)
-                del trace[:-TRACE_MAX_POINTS]
-        self.marker_pub.publish(self.markers(tip))
+    def on_sample(self):
+        """Record the tool tip while the process is on; every switch-on starts a stroke."""
+        if not self.process_on or self.held is None:
+            self.stroke = None
+            return
+        tip = self.tip_point()
+        if tip is None:
+            return
+        strokes = self.traces[self.held]
+        if self.stroke is None:
+            self.stroke = []
+            strokes.append(self.stroke)
+        last = self.stroke[-1] if self.stroke else None
+        if last is None or math.dist((last.x, last.y, last.z),
+                                     (tip.x, tip.y, tip.z)) > TRACE_MIN_STEP:
+            self.stroke.append(tip)
+            while len(strokes) > 1 and sum(len(s) for s in strokes) > TRACE_MAX_POINTS:
+                strokes.pop(0)
 
-    def markers(self, tip):
+    def on_publish_markers(self):
+        self.marker_pub.publish(self.markers())
+
+    def markers(self):
+        # No stamp: RViz then uses the latest TF. A stamp of "now" is often newer than
+        # the latest tool0 transform, and RViz hides such markers until the next message.
         array = MarkerArray()
-        stamp = self.get_clock().now().to_msg()
 
         def marker(ns, mid, mtype, frame=WORLD):
             m = Marker(ns=ns, id=mid, type=mtype, action=Marker.ADD)
             m.header.frame_id = frame
-            m.header.stamp = stamp
+            m.frame_locked = frame == EE_LINK
             m.pose.orientation.w = 1.0
             array.markers.append(m)
             return m
@@ -460,18 +497,19 @@ class WorkCell(Node):
                 m.scale.z = part.z_to - part.z_from
                 m.color = color(part.color)
 
-        for i, (name, points) in enumerate(self.traces.items()):
-            m = marker('trace', i, Marker.LINE_STRIP)
-            if len(points) < 2:
+        for i, (name, strokes) in enumerate(self.traces.items()):
+            m = marker('trace', i, Marker.LINE_LIST)
+            m.points = [p for stroke in strokes for a, b in zip(stroke, stroke[1:]) for p in (a, b)]
+            if not m.points:
                 m.action = Marker.DELETE
                 continue
-            m.points = points
             m.scale.x = 0.004 if name == 'mill' else 0.002
             m.color = color((0.25, 0.25, 0.28, 1.0) if name == 'mill' else (0.15, 0.05, 0.0, 1.0))
 
-        beam = marker('beam', 0, Marker.LINE_LIST)
-        if tip is not None and self.held == 'laser':
-            beam.points = [tip, Point(x=tip.x, y=tip.y, z=cell.LASER_SURFACE_Z)]
+        beam = marker('beam', 0, Marker.LINE_LIST, EE_LINK)
+        if self.process_on and self.held == 'laser':
+            tip = cell.LASER.tip
+            beam.points = [Point(z=tip), Point(z=tip + cell.LASER_STANDOFF)]
             beam.scale.x = 0.003
             beam.color = color((1.0, 0.1, 0.05, 1.0))
         else:

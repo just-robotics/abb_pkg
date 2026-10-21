@@ -210,6 +210,10 @@ A held tool is attached to `tool0` in the planning scene, so MoveIt plans with i
 `/work_cell/status`, visuals (cell, tools, machining trace, laser beam) in `/work_cell/markers`.
 Cell geometry is in `abb_trajectory_generator/cell_layout.py`, speeds in `config/params.yaml`.
 
+To plan by hand in RViz, turn on **Displays → MotionPlanning → Planning Request → Query Goal State**:
+the goal appears as a translucent green robot with a marker to drag, then use **Plan & Execute**.
+It is off by default.
+
 Run a figure on a running stack:
 
 ```bash
