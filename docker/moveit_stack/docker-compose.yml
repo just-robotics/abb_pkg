@@ -1,0 +1,54 @@
+# Three containers on the host network:
+#   hardware   - ros2_control + controllers + robot_state_publisher (mock or real driver)
+#   moveit     - move_group + RViz
+#   trajectory - trajectory generator feeding MoveIt
+x-ros: &ros
+  network_mode: host
+  ipc: host
+  environment: &ros-env
+    RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    ROS_LOCALHOST_ONLY: "0"
+  tty: true
+  stdin_open: true
+
+services:
+  hardware:
+    <<: *ros
+    build:
+      context: ../..
+      dockerfile: docker/moveit_stack/hardware.Dockerfile
+    image: abb_hardware
+    environment:
+      <<: *ros-env
+      HARDWARE_PLUGIN: ${HARDWARE_PLUGIN:-mock_components/GenericSystem}
+
+  moveit:
+    <<: *ros
+    build:
+      context: ../..
+      dockerfile: docker/moveit_stack/moveit.Dockerfile
+    image: abb_moveit
+    depends_on:
+      - hardware
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}/.Xauthority:/root/.Xauthority:ro
+    environment:
+      <<: *ros-env
+      RVIZ: ${RVIZ:-true}
+      DISPLAY: ${DISPLAY:-}
+      QT_X11_NO_MITSHM: "1"
+      XAUTHORITY: /root/.Xauthority
+
+  trajectory:
+    <<: *ros
+    build:
+      context: ../..
+      dockerfile: docker/moveit_stack/trajectory.Dockerfile
+    image: abb_trajectory
+    depends_on:
+      - moveit
+    environment:
+      <<: *ros-env
+      AUTOSTART_FIGURE: ${AUTOSTART_FIGURE:-}

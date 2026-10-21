@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- The only difference between the simulation and the real robot is the hardware plugin.
+       Joints, interfaces and controllers stay the same, so MoveIt does not know which one runs.
+
+       Contract for a real robot driver (any hardware_interface::SystemInterface):
+         - joints joint_1 ... joint_6, angles in rad
+         - command interface "position"
+         - state interface "position" -->
+  <xacro:macro name="irb1600_ros2_control" params="name prefix hardware_plugin initial_positions_file">
+    <xacro:property name="initial_positions" value="${xacro.load_yaml(initial_positions_file)['initial_positions']}"/>
+
+    <xacro:macro name="position_joint" params="joint_name">
+      <joint name="${prefix}${joint_name}">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <!-- used by mock_components only; a real driver reports the measured position -->
+          <param name="initial_value">${initial_positions[joint_name]}</param>
+        </state_interface>
+      </joint>
+    </xacro:macro>
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <plugin>${hardware_plugin}</plugin>
+        <!-- driver-specific <param> entries go here -->
+      </hardware>
+      <xacro:position_joint joint_name="joint_1"/>
+      <xacro:position_joint joint_name="joint_2"/>
+      <xacro:position_joint joint_name="joint_3"/>
+      <xacro:position_joint joint_name="joint_4"/>
+      <xacro:position_joint joint_name="joint_5"/>
+      <xacro:position_joint joint_name="joint_6"/>
+    </ros2_control>
+  </xacro:macro>
+
+</robot>

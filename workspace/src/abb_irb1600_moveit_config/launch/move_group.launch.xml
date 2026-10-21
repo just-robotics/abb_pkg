@@ -1,0 +1,25 @@
+<launch>
+
+  <arg name="rviz" default="true" description="Start RViz with the MotionPlanning panel"/>
+
+  <let name="config" value="$(find-pkg-share abb_irb1600_moveit_config)/config"/>
+  <let name="robot_description" value="$(command 'xacro $(find-pkg-share abb_irb1600_description)/urdf/irb1600_10_145.urdf.xacro')"/>
+  <let name="robot_description_semantic" value="$(command 'cat $(var config)/irb1600_10_145.srdf')"/>
+
+  <node pkg="moveit_ros_move_group" exec="move_group" output="screen">
+    <param name="robot_description" value="$(var robot_description)" type="str"/>
+    <param name="robot_description_semantic" value="$(var robot_description_semantic)" type="str"/>
+    <param from="$(var config)/kinematics.yaml"/>
+    <param from="$(var config)/joint_limits.yaml"/>
+    <param from="$(var config)/planning_pipelines.yaml"/>
+    <param from="$(var config)/moveit_controllers.yaml"/>
+    <param from="$(var config)/move_group.yaml"/>
+  </node>
+
+  <node pkg="rviz2" exec="rviz2" args="-d $(var config)/moveit.rviz" if="$(var rviz)">
+    <param name="robot_description" value="$(var robot_description)" type="str"/>
+    <param name="robot_description_semantic" value="$(var robot_description_semantic)" type="str"/>
+    <param from="$(var config)/kinematics.yaml"/>
+  </node>
+
+</launch>

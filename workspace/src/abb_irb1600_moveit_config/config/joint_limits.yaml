@@ -1,0 +1,39 @@
+# Velocities: ABB IRB 1600 product specification (same as the URDF).
+# Accelerations are not published by ABB; values below are conservative.
+# The default scaling factors apply to the simulation and the real robot alike.
+/**:
+  ros__parameters:
+    robot_description_planning:
+      default_velocity_scaling_factor: 0.1
+      default_acceleration_scaling_factor: 0.1
+      joint_limits:
+        joint_1:
+          has_velocity_limits: true
+          max_velocity: 3.1416
+          has_acceleration_limits: true
+          max_acceleration: 5.0
+        joint_2:
+          has_velocity_limits: true
+          max_velocity: 3.1416
+          has_acceleration_limits: true
+          max_acceleration: 5.0
+        joint_3:
+          has_velocity_limits: true
+          max_velocity: 3.2289
+          has_acceleration_limits: true
+          max_acceleration: 5.0
+        joint_4:
+          has_velocity_limits: true
+          max_velocity: 6.7195
+          has_acceleration_limits: true
+          max_acceleration: 10.0
+        joint_5:
+          has_velocity_limits: true
+          max_velocity: 6.9813
+          has_acceleration_limits: true
+          max_acceleration: 10.0
+        joint_6:
+          has_velocity_limits: true
+          max_velocity: 8.0285
+          has_acceleration_limits: true
+          max_acceleration: 10.0

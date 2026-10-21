@@ -1,0 +1,10 @@
+<launch>
+
+  <arg name="autostart_figure" default="" description="Figure to run on startup: empty, circle or line"/>
+
+  <node pkg="abb_trajectory_generator" exec="trajectory_generator" name="trajectory_generator" output="screen">
+    <param from="$(find-pkg-share abb_trajectory_generator)/config/params.yaml"/>
+    <param name="autostart_figure" value="$(var autostart_figure)" type="str"/>
+  </node>
+
+</launch>

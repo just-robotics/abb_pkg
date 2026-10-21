@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="abb_irb1600_10_145">
+
+  <!-- ros2_control hardware plugin: mock_components/GenericSystem for the simulation,
+       the plugin of the robot controller driver for the real robot -->
+  <xacro:arg name="hardware_plugin" default="mock_components/GenericSystem"/>
+  <xacro:arg name="initial_positions_file" default="$(find abb_irb1600_description)/config/initial_positions.yaml"/>
+
+  <xacro:include filename="$(find abb_irb1600_support)/urdf/irb1600_10_145_macro.xacro"/>
+  <xacro:include filename="$(find abb_irb1600_description)/urdf/irb1600.ros2_control.xacro"/>
+
+  <link name="world"/>
+  <joint name="world-base_link" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:abb_irb1600_10_145 prefix=""/>
+
+  <xacro:irb1600_ros2_control
+    name="irb1600"
+    prefix=""
+    hardware_plugin="$(arg hardware_plugin)"
+    initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>

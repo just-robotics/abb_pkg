@@ -179,6 +179,50 @@ ros2 launch camera_wrapper camera_node.launch.py
 
 Requires the camera driver and `camera_wrapper` config (e.g. `config/params.yaml`) to be set up.
 
+### 5. MoveIt 2 + ros2_control stack (simulation, no RAPID)
+
+Three containers, see `docker/moveit_stack/`:
+
+| Container    | Package                      | Runs                                                                                   |
+|--------------|------------------------------|----------------------------------------------------------------------------------------|
+| `hardware`   | `abb_irb1600_bringup`        | `robot_state_publisher`, `ros2_control_node` (hardware plugin), `joint_state_broadcaster`, `joint_trajectory_controller` |
+| `moveit`     | `abb_irb1600_moveit_config`  | `move_group` (OMPL, KDL), RViz with the MotionPlanning panel                           |
+| `trajectory` | `abb_trajectory_generator`   | trajectory generator: Cartesian circle / line, sent to `move_group`                   |
+
+```bash
+cd docker/moveit_stack
+docker compose up --build                      # RViz needs X11; RVIZ=false for headless
+AUTOSTART_FIGURE=circle docker compose up      # run a figure right after startup
+```
+
+Run a figure on a running stack:
+
+```bash
+ros2 topic pub --once /figure_type std_msgs/msg/String "{data: circle}"   # or line
+```
+
+The generator moves to the first waypoint (`/move_action`), interpolates the path
+(`/compute_cartesian_path`) and executes it (`/execute_trajectory`). Figure geometry, tool
+orientation and speed scaling are in `abb_trajectory_generator/config/params.yaml`.
+
+Without Docker: `ros2 launch abb_irb1600_bringup hardware.launch.xml`,
+`ros2 launch abb_irb1600_moveit_config move_group.launch.xml`,
+`ros2 launch abb_trajectory_generator trajectory_generator.launch.xml`.
+The robot model alone: `ros2 launch abb_irb1600_description view_robot.launch.xml`.
+
+**Switching to the real robot.** Only the `hardware` container changes. The robot driver must be a
+`hardware_interface::SystemInterface` plugin with joints `joint_1` … `joint_6` (rad), command
+interface `position` and state interface `position`:
+
+1. add the driver package to `docker/moveit_stack/hardware.Dockerfile` (see the comment there);
+2. put driver-specific `<param>` entries into the `<hardware>` block of
+   `abb_irb1600_description/urdf/irb1600.ros2_control.xacro`;
+3. start with `HARDWARE_PLUGIN=<driver_pkg>/<DriverSystem> docker compose up`.
+
+Before the first run on hardware check `update_rate` and trajectory tolerances in
+`abb_irb1600_bringup/config/ros2_controllers.yaml` and the acceleration limits in
+`abb_irb1600_moveit_config/config/joint_limits.yaml` (velocity/acceleration scaling defaults to 0.1).
+
 ## Typical workflow
 
 1. Build and source the workspace (see **Build**).

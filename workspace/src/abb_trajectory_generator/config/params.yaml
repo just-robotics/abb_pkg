@@ -1,0 +1,27 @@
+trajectory_generator:
+  ros__parameters:
+    group_name: manipulator
+    frame_id: base_link
+    ee_link: tool0
+
+    # tool0 orientation along the whole path, RPY in deg (tool pointing down)
+    orientation_rpy_deg: [180.0, 0.0, -90.0]
+
+    # circle in a horizontal plane, m
+    circle_center: [0.75, 0.0, 0.7]
+    circle_radius: 0.2
+    circle_points: 72
+
+    # straight line, m
+    line_start: [0.75, -0.4, 0.7]
+    line_end: [0.75, 0.4, 0.7]
+    line_points: 10
+
+    # Cartesian interpolation step, m; path is rejected if less than min_fraction is feasible
+    max_step: 0.005
+    min_fraction: 0.99
+    velocity_scaling: 0.1
+    acceleration_scaling: 0.1
+
+    # figure to run on startup: "", "circle" or "line"; later ones come from the figure_type topic
+    autostart_figure: ""

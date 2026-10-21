@@ -1,0 +1,18 @@
+<launch>
+
+  <arg name="hardware_plugin" default="mock_components/GenericSystem" description="ros2_control plugin: mock_components/GenericSystem (simulation) or the real robot driver"/>
+
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(command 'xacro $(find-pkg-share abb_irb1600_description)/urdf/irb1600_10_145.urdf.xacro hardware_plugin:=$(var hardware_plugin)')" type="str"/>
+  </node>
+
+  <node pkg="controller_manager" exec="ros2_control_node" output="screen">
+    <param from="$(find-pkg-share abb_irb1600_bringup)/config/ros2_controllers.yaml"/>
+    <remap from="~/robot_description" to="/robot_description"/>
+  </node>
+
+  <node pkg="controller_manager" exec="spawner" args="joint_state_broadcaster --controller-manager /controller_manager"/>
+
+  <node pkg="controller_manager" exec="spawner" args="joint_trajectory_controller --controller-manager /controller_manager"/>
+
+</launch>

@@ -1,0 +1,13 @@
+<launch>
+
+  <arg name="gui" default="true" description="Start joint_state_publisher_gui to move the joints by hand"/>
+
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(command 'xacro $(find-pkg-share abb_irb1600_description)/urdf/irb1600_10_145.urdf.xacro')" type="str"/>
+  </node>
+
+  <node pkg="joint_state_publisher_gui" exec="joint_state_publisher_gui" if="$(var gui)"/>
+
+  <node pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share abb_irb1600_description)/rviz/view_robot.rviz"/>
+
+</launch>
