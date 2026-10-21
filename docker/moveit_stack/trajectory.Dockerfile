@@ -18,4 +18,4 @@ RUN . /opt/ros/humble/setup.sh && colcon build --packages-select abb_trajectory_
 
 ENV AUTOSTART_FIGURE=""
 
-CMD ["bash", "-c", ". install/setup.sh && exec ros2 launch abb_trajectory_generator trajectory_generator.launch.xml autostart_figure:=${AUTOSTART_FIGURE}"]
+CMD ["bash", "-c", ". install/setup.sh && exec ros2 launch abb_trajectory_generator trajectory_generator.launch.xml ${AUTOSTART_FIGURE:+autostart_figure:=$AUTOSTART_FIGURE}"]
