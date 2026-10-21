@@ -9,9 +9,21 @@ Tools hang along +z of tool0, which points down while working
 """
 
 from dataclasses import dataclass, field
+import math
 
 TABLE_HEIGHT = 0.4
 TOOL_DOWN_RPY_DEG = (180.0, 0.0, -90.0)
+
+
+def ik_seed(x, y):
+    """IK seed for a tool-down pose above (x, y): the home pose configuration (elbow up,
+    wrist not turned over) with joint_1 facing the target and joint_6 keeping the tool
+    yaw. Every goal is then reached in the same configuration, whatever the robot did
+    before, and joint_6 does not wind up over the moves."""
+    j1 = math.atan2(y, x)
+    return {'joint_1': j1, 'joint_2': 0.0, 'joint_3': 0.0, 'joint_4': 0.0,
+            'joint_5': math.radians(90.0), 'joint_6': j1 + math.radians(TOOL_DOWN_RPY_DEG[2])}
+
 
 GREY = (0.55, 0.55, 0.58, 1.0)
 DARK = (0.2, 0.2, 0.22, 1.0)

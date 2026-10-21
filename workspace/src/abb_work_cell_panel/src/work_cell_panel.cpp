@@ -36,9 +36,12 @@ WorkCellPanel::WorkCellPanel(QWidget * parent)
   root_layout->addWidget(tool_group);
 
   auto * work_group = new QGroupBox(QString::fromUtf8("Работа"));
-  auto * work_layout = new QHBoxLayout();
-  work_layout->addWidget(addButton(QString::fromUtf8("Начать работу"), "start_work"));
-  work_layout->addWidget(addButton(QString::fromUtf8("Прекратить работу"), "stop_work"));
+  auto * work_layout = new QVBoxLayout();
+  auto * start_stop_layout = new QHBoxLayout();
+  start_stop_layout->addWidget(addButton(QString::fromUtf8("Начать работу"), "start_work"));
+  start_stop_layout->addWidget(addButton(QString::fromUtf8("Прекратить работу"), "stop_work"));
+  work_layout->addLayout(start_stop_layout);
+  work_layout->addWidget(addButton(QString::fromUtf8("Домой"), "go_home"));
   work_group->setLayout(work_layout);
   root_layout->addWidget(work_group);
 

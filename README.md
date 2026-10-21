@@ -203,8 +203,12 @@ panel in RViz has the buttons:
 |---------------------|------------------------------|-----------------------------------------------------------------|
 | Взять фрезу / лазер | `/work_cell/take_mill`, `/work_cell/take_laser` | puts the current tool back if needed, takes the new one |
 | Снять инструмент    | `/work_cell/release_tool`    | returns the tool to its holder                                  |
-| Начать работу       | `/work_cell/start_work`      | mill: raster over the workpiece, laser: circle and star on the sheet; repeats until stopped |
-| Прекратить работу   | `/work_cell/stop_work`       | stops the motion and lifts the tool                             |
+| Начать работу       | `/work_cell/start_work`      | mill: raster over the workpiece, laser: circle and star on the sheet; runs once, then the robot goes home |
+| Прекратить работу   | `/work_cell/stop_work`       | stops the motion, lifts the tool clear of the part and stays there |
+| Домой               | `/work_cell/go_home`         | moves the robot to the `home` pose of the SRDF                  |
+
+Home is `[0, 0, 0, 0, 90, -90]` deg, the pose the simulated robot starts in
+(`abb_irb1600_description/config/initial_positions.yaml`, `home` in the SRDF; keep them equal).
 
 A held tool is attached to `tool0` in the planning scene, so MoveIt plans with it. The status is in
 `/work_cell/status`, visuals (cell, tools, machining trace, laser beam) in `/work_cell/markers`.

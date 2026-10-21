@@ -1,8 +1,11 @@
 """Work cell: tool change (mill / laser) and work programs through MoveIt.
 
 Services (std_srvs/Trigger), all return at once and run in the background:
-  ~/take_mill, ~/take_laser, ~/release_tool, ~/start_work, ~/stop_work
+  ~/take_mill, ~/take_laser, ~/release_tool, ~/start_work, ~/stop_work, ~/go_home
 Status for the RViz panel: ~/status (std_msgs/String, latched).
+
+Work runs the program of the held tool once and returns the robot home. Home is
+the "home" group state of the SRDF, the pose the simulated robot starts in.
 
 The cell is added to the planning scene as collision objects; a held tool is
 attached to tool0, so MoveIt plans with it. Visuals go to ~/markers: the held
@@ -13,6 +16,7 @@ via TF.
 import math
 import threading
 import time
+import xml.etree.ElementTree as ElementTree
 
 import rclpy
 from geometry_msgs.msg import Point, Pose
@@ -31,6 +35,7 @@ from abb_trajectory_generator.moveit_client import MoveItClient, make_pose, rpy_
 
 WORLD = 'world'
 EE_LINK = 'tool0'
+HOME_STATE = 'home'
 TOUCH_LINKS = ['tool0', 'flange', 'link_6', 'link_5']
 TRACE_MAX_POINTS = 10000     # per tool, oldest strokes are dropped
 TRACE_MIN_STEP = 0.001
@@ -58,13 +63,13 @@ class WorkCell(Node):
     def __init__(self):
         super().__init__('work_cell')
 
-        group_name = self.declare_parameter('group_name', 'manipulator').value
+        self.group_name = self.declare_parameter('group_name', 'manipulator').value
         self.velocity_scaling = self.declare_parameter('velocity_scaling', 0.2).value
         self.acceleration_scaling = self.declare_parameter('acceleration_scaling', 0.2).value
         self.process_velocity_scaling = self.declare_parameter(
             'process_velocity_scaling', 0.05).value
 
-        self.moveit = MoveItClient(self, group_name, WORLD, EE_LINK)
+        self.moveit = MoveItClient(self, self.group_name, WORLD, EE_LINK)
         self.tool_down = rpy_to_quaternion(*(math.radians(a) for a in cell.TOOL_DOWN_RPY_DEG))
 
         self.tf_buffer = tf2_ros.Buffer()
@@ -72,6 +77,8 @@ class WorkCell(Node):
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.status_pub = self.create_publisher(String, '~/status', latched)
+        self.home = None
+        self.create_subscription(String, '/robot_description_semantic', self.on_srdf, latched)
         self.marker_pub = self.create_publisher(MarkerArray, '~/markers', 10)
 
         self.busy = threading.Lock()
@@ -79,6 +86,7 @@ class WorkCell(Node):
         self.held = None
         self.working = False
         self.process_on = False
+        self.safe_z = None          # tool0 height clear of the part being processed
         self.state = 'ожидание move_group'
         # machining trace per tool: strokes (lists of tip points) with the process on
         self.traces = {name: [] for name in cell.TOOLS}
@@ -88,7 +96,8 @@ class WorkCell(Node):
                                ('take_laser', lambda: self.on_take('laser')),
                                ('release_tool', self.on_release),
                                ('start_work', self.on_start_work),
-                               ('stop_work', self.on_stop_work)):
+                               ('stop_work', self.on_stop_work),
+                               ('go_home', self.on_go_home)):
             self.create_service(Trigger, f'~/{name}',
                                 lambda _req, res, cb=callback: self.respond(res, *cb()))
 
@@ -128,6 +137,11 @@ class WorkCell(Node):
         self.stop_event.set()
         self.moveit.stop()
         return True, 'останавливаю'
+
+    def on_go_home(self):
+        if self.home is None:
+            return False, f'нет позы {HOME_STATE} в SRDF'
+        return self.submit(self.go_home)
 
     def submit(self, job, *args):
         if not self.busy.acquire(blocking=False):
@@ -231,23 +245,37 @@ class WorkCell(Node):
         return True, ''
 
     def work(self):
+        """Run the program of the held tool once, then go home.
+
+        Stop: the robot stops, lifts the tool clear of the part and stays there.
+        """
         tool = cell.TOOLS[self.held]
         program = self.milling if tool.name == 'mill' else self.laser_cutting
         self.stop_event.clear()
         self.working = True
+        self.safe_z = None
         self.traces[tool.name] = []
         self.set_state('работа: фрезеровка' if tool.name == 'mill' else 'работа: лазерная резка')
 
-        while not self.stop_event.is_set():
-            ok, message = program(tool)
-            if not ok and not self.stop_event.is_set():
+        ok, message = program(tool)
+        if not self.stop_event.is_set():
+            if not ok:
                 return False, message
+            ok, message = self.go_home()
+        if self.stop_event.is_set():
+            self.set_state('останавливаю')
+            self.process_on = False
+            self.working = False
+            time.sleep(SETTLE_TIME_S)
+            return self.retract()
+        return ok, message
 
-        self.set_state('останавливаю')
-        self.process_on = False
-        self.working = False
-        time.sleep(SETTLE_TIME_S)
-        return self.retract()
+    def go_home(self):
+        self.set_state('еду домой')
+        if self.working and self.stop_event.is_set():
+            return False, 'остановлено'
+        return self.moveit.move_to_joints(
+            self.home, self.velocity_scaling, self.acceleration_scaling)
 
     def milling(self, tool):
         """Raster over the workpiece, end mill on the surface."""
@@ -284,8 +312,9 @@ class WorkCell(Node):
         """
         if self.stop_event.is_set():
             return True, ''
+        self.safe_z = z + cell.APPROACH_HEIGHT
         x, y = contours[0][0][0]
-        ok, message = self.move(self.pose(x, y, z + cell.APPROACH_HEIGHT))
+        ok, message = self.move(self.pose(x, y, self.safe_z))
         if not ok:
             return False, message
 
@@ -316,26 +345,23 @@ class WorkCell(Node):
             previous = points[-1]
 
         x, y = previous
-        return self.path([self.pose(x, y, z + cell.APPROACH_HEIGHT)], avoid_collisions=False)
+        return self.path([self.pose(x, y, self.safe_z)], avoid_collisions=False)
 
     def retract(self):
-        """Lift the tool straight up from wherever the robot stopped."""
+        """Lift the tool straight up to the safe height above the part, if it is below it."""
         current = self.ee_pose()
         if current is None:
             return False, 'нет TF world -> tool0'
-        up = make_pose(current.position.x, current.position.y,
-                       current.position.z + cell.APPROACH_HEIGHT, self.tool_down)
+        if self.safe_z is None or current.position.z >= self.safe_z - 0.001:
+            return True, ''
+        up = make_pose(current.position.x, current.position.y, self.safe_z, self.tool_down)
         return self.path([up], avoid_collisions=False)
 
     def move(self, pose):
-        """Collision-free motion to pose.
-
-        IK starts from the current arm configuration with joint_1 already turned towards
-        the target, so the robot keeps its elbow and wrist configuration on the way.
-        """
+        """Collision-free motion to pose, always in the same arm configuration (ik_seed)."""
         if self.working and self.stop_event.is_set():
             return False, 'остановлено'
-        seed = {'joint_1': math.atan2(pose.position.y, pose.position.x)}
+        seed = cell.ik_seed(pose.position.x, pose.position.y)
         return self.moveit.move_to_pose(
             pose, self.velocity_scaling, self.acceleration_scaling, seed)
 
@@ -407,6 +433,18 @@ class WorkCell(Node):
         scene = self.scene_diff()
         scene.robot_state.attached_collision_objects.append(aco)
         return scene
+
+    def on_srdf(self, msg):
+        try:
+            root = ElementTree.fromstring(msg.data)
+        except ElementTree.ParseError as e:
+            self.get_logger().error(f'Cannot parse the SRDF: {e}')
+            return
+        for state in root.iter('group_state'):
+            if state.get('name') == HOME_STATE and state.get('group') == self.group_name:
+                self.home = {j.get('name'): float(j.get('value')) for j in state.iter('joint')}
+                return
+        self.get_logger().error(f'No group state "{HOME_STATE}" for {self.group_name} in the SRDF')
 
     # ---------------------------------------------------------- visualization
 

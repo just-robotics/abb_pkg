@@ -2,7 +2,7 @@
 <package format="3">
   <name>abb_work_cell_panel</name>
   <version>0.1.0</version>
-  <description>RViz2 panel for the work cell: tool change (mill / laser) and start / stop work</description>
+  <description>RViz2 panel for the work cell: tool change (mill / laser), start / stop work, go home</description>
 
   <maintainer email="kondart.dev@gmail.com">Artem Kondratiev</maintainer>
   <license>Apache-2.0</license>
