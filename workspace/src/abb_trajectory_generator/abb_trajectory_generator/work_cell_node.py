@@ -39,6 +39,7 @@ HOME_STATE = 'home'
 TOUCH_LINKS = ['tool0', 'flange', 'link_6', 'link_5']
 TRACE_MAX_POINTS = 10000     # per tool, oldest strokes are dropped
 TRACE_MIN_STEP = 0.001
+TRACE_LIFT = 0.0005          # above the work surface, so the line is not hidden in it
 LEAD_IN_HEIGHT = 0.03        # tool lift between contours
 SETTLE_TIME_S = 0.3          # after a stop, before the retract is planned
 
@@ -472,13 +473,15 @@ class WorkCell(Node):
         return Point(x=p.x + zx * tip, y=p.y + zy * tip, z=p.z + zz * tip)
 
     def on_sample(self):
-        """Record the tool tip while the process is on; every switch-on starts a stroke."""
+        """Record the tool tip, projected on the work surface, while the process is on;
+        every switch-on starts a stroke."""
         if not self.process_on or self.held is None:
             self.stroke = None
             return
         tip = self.tip_point()
         if tip is None:
             return
+        tip.z = cell.WORK_SURFACE_Z[self.held] + TRACE_LIFT
         strokes = self.traces[self.held]
         if self.stroke is None:
             self.stroke = []

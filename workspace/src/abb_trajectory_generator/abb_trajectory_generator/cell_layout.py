@@ -108,4 +108,8 @@ LASER_RADIUS = 0.1           # circle
 LASER_STAR_RADIUS = 0.085    # star tips
 LASER_STAR_INNER = 0.382     # inner corners of a regular star: cos(72) / cos(36) of the tips
 
+# Surface each tool works on: the machining trace is drawn there, not at the tool tip
+# (the laser nozzle stays LASER_STANDOFF above the sheet).
+WORK_SURFACE_Z = {MILL.name: MILL_SURFACE_Z, LASER.name: LASER_SURFACE_Z}
+
 APPROACH_HEIGHT = 0.12   # above grasp / work start, reached with a collision-free motion
