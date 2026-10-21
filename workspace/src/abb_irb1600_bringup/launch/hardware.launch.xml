@@ -4,6 +4,7 @@
 
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
     <param name="robot_description" value="$(command 'xacro $(find-pkg-share abb_irb1600_description)/urdf/irb1600_10_145.urdf.xacro hardware_plugin:=$(var hardware_plugin)')" type="str"/>
+    <param name="publish_frequency" value="50.0"/>
   </node>
 
   <node pkg="controller_manager" exec="ros2_control_node" output="screen">
