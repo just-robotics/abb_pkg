@@ -1,4 +1,5 @@
-# MoveIt: move_group (planning, execution through joint_trajectory_controller) and RViz.
+# MoveIt: move_group (planning, execution through joint_trajectory_controller) and RViz
+# with the work cell panel.
 FROM ros:humble-ros-base-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -15,6 +16,7 @@ WORKDIR /workspace
 COPY workspace/src/abb src/abb
 COPY workspace/src/abb_irb1600_description src/abb_irb1600_description
 COPY workspace/src/abb_irb1600_moveit_config src/abb_irb1600_moveit_config
+COPY workspace/src/abb_work_cell_panel src/abb_work_cell_panel
 
 RUN . /opt/ros/humble/setup.sh && colcon build --packages-up-to abb_irb1600_moveit_config
 

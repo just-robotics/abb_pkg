@@ -17,6 +17,7 @@
   <exec_depend>moveit_simple_controller_manager</exec_depend>
   <exec_depend>moveit_ros_visualization</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>abb_work_cell_panel</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

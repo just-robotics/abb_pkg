@@ -25,3 +25,12 @@ trajectory_generator:
 
     # figure to run on startup: "", "circle" or "line"; later ones come from the figure_type topic
     autostart_figure: ""
+
+work_cell:
+  ros__parameters:
+    group_name: manipulator
+    # free motions and tool change
+    velocity_scaling: 0.2
+    acceleration_scaling: 0.2
+    # milling raster and laser contours
+    process_velocity_scaling: 0.05

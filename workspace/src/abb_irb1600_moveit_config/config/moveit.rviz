@@ -1,8 +1,8 @@
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
-  - Class: rviz_common/Views
-    Name: Views
+  - Class: abb_work_cell_panel/WorkCellPanel
+    Name: WorkCell
 Visualization Manager:
   Class: ""
   Displays:
@@ -17,6 +17,11 @@ Visualization Manager:
       Description Source: Topic
       Description Topic:
         Value: /robot_description
+    - Class: rviz_default_plugins/MarkerArray
+      Name: WorkCell
+      Enabled: true
+      Topic:
+        Value: /work_cell/markers
     - Class: moveit_rviz_plugin/MotionPlanning
       Name: MotionPlanning
       Enabled: true
@@ -41,6 +46,9 @@ Visualization Manager:
       Scene Robot:
         Show Robot Visual: false
         Show Robot Collision: false
+      # the work cell is drawn by the WorkCell markers
+      Scene Geometry:
+        Show Scene Geometry: false
   Global Options:
     Fixed Frame: world
   Tools:

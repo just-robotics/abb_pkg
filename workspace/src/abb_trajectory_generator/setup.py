@@ -18,11 +18,12 @@ setup(
     zip_safe=True,
     maintainer='Artem Kondratiev',
     maintainer_email='kondart.dev@gmail.com',
-    description='Generates Cartesian trajectories (circle, line) and executes them through MoveIt',
+    description='Trajectory generation through MoveIt: figures and a mill / laser work cell',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
             'trajectory_generator = abb_trajectory_generator.trajectory_generator_node:main',
+            'work_cell = abb_trajectory_generator.work_cell_node:main',
         ],
     },
 )

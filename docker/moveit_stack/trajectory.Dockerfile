@@ -1,4 +1,4 @@
-# Trajectory generator: builds Cartesian paths and sends them to move_group.
+# Trajectory generation: figures and the mill / laser work cell, sent to move_group.
 # Uses only ROS interfaces of MoveIt, no MoveIt libraries.
 FROM ros:humble-ros-base-jammy
 

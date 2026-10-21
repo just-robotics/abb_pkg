@@ -187,13 +187,28 @@ Three containers, see `docker/moveit_stack/`:
 |--------------|------------------------------|----------------------------------------------------------------------------------------|
 | `hardware`   | `abb_irb1600_bringup`        | `robot_state_publisher`, `ros2_control_node` (hardware plugin), `joint_state_broadcaster`, `joint_trajectory_controller` |
 | `moveit`     | `abb_irb1600_moveit_config`  | `move_group` (OMPL, KDL), RViz with the MotionPlanning panel                           |
-| `trajectory` | `abb_trajectory_generator`   | trajectory generator: Cartesian circle / line, sent to `move_group`                   |
+| `trajectory` | `abb_trajectory_generator`   | `work_cell` (tool change, milling / laser work) and the circle / line generator, both sent to `move_group` |
 
 ```bash
 cd docker/moveit_stack
 docker compose up --build                      # RViz needs X11; RVIZ=false for headless
 AUTOSTART_FIGURE=circle docker compose up      # run a figure right after startup
 ```
+
+**Work cell.** Three tables are added to the MoveIt planning scene: a tool table with a mill and a
+laser in holders, a milling table with a workpiece and a laser table with a sheet. The **WorkCell**
+panel in RViz has the buttons:
+
+| Button              | Service (`std_srvs/Trigger`) | What happens                                                    |
+|---------------------|------------------------------|-----------------------------------------------------------------|
+| Взять фрезу / лазер | `/work_cell/take_mill`, `/work_cell/take_laser` | puts the current tool back if needed, takes the new one |
+| Снять инструмент    | `/work_cell/release_tool`    | returns the tool to its holder                                  |
+| Начать работу       | `/work_cell/start_work`      | mill: raster over the workpiece, laser: circle and star on the sheet; repeats until stopped |
+| Прекратить работу   | `/work_cell/stop_work`       | stops the motion and lifts the tool                             |
+
+A held tool is attached to `tool0` in the planning scene, so MoveIt plans with it. The status is in
+`/work_cell/status`, visuals (cell, tools, machining trace, laser beam) in `/work_cell/markers`.
+Cell geometry is in `abb_trajectory_generator/cell_layout.py`, speeds in `config/params.yaml`.
 
 Run a figure on a running stack:
 

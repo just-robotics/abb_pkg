@@ -1,0 +1,10 @@
+<library path="abb_work_cell_panel">
+  <class
+    name="abb_work_cell_panel/WorkCellPanel"
+    type="abb_work_cell_panel::WorkCellPanel"
+    base_class_type="rviz_common::Panel">
+    <description>
+      Buttons for the work_cell node: take mill / laser, release tool, start / stop work.
+    </description>
+  </class>
+</library>
