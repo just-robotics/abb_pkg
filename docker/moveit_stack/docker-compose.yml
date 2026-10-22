@@ -33,7 +33,8 @@ services:
       - hardware
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ${HOME}/.Xauthority:/root/.Xauthority:ro
+      # X cookie: under Wayland (Xwayland) it is not ~/.Xauthority, but $XAUTHORITY
+      - ${XAUTHORITY:-${HOME}/.Xauthority}:/root/.Xauthority:ro
     environment:
       <<: *ros-env
       RVIZ: ${RVIZ:-true}
