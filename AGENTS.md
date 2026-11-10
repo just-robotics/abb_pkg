@@ -7,7 +7,20 @@
 `abb_libegm`, `vel_control`, …) с MoveIt-стеком не связан; для `vel_control` есть свой
 `workspace/src/vel_control/AGENTS.md`.
 
-ROS 2 Humble, Ubuntu 22.04 (образы `ros:humble-ros-base-jammy`), RMW CycloneDDS.
+ROS 2 Jazzy, Ubuntu 24.04 (образы `ros:jazzy-ros-base-noble`), RMW CycloneDDS. EGM-стек
+остаётся на Humble (`docker/Dockerfile`).
+
+**Переход на Jazzy не закончен.** Образы собираются на Jazzy, но конфиги MoveIt и ros2_control
+остались в формате Humble, и стек на Jazzy не проверялся. В первую очередь это
+`planning_pipelines.yaml`: в Jazzy вместо `planning_plugin` нужен список `planning_plugins`, а
+адаптеры делятся на `request_adapters` / `response_adapters` с новыми именами
+(`default_planning_request_adapters/*`, `default_planning_response_adapters/*`). Всё, что ниже
+описано про рантайм, проверено на Humble.
+
+Цель — интерфейс манипулятора BOXes из [manipulator_manual.md](manipulator_manual.md) (§5–7:
+движение по точкам, обучение точек, jog) поверх симулятора, чтобы внешняя программа работала с
+симулятором и с реальной системой без правок. Пока сделаны только типы сообщений
+(`boxes_interfaces`), узлов, реализующих интерфейс, ещё нет.
 
 ## 1. Карта пакетов
 
@@ -38,21 +51,33 @@ workspace/src/
 │   ├── abb_trajectory_generator/trajectory_generator_node.py  # нода trajectory_generator (круг/линия)
 │   ├── config/params.yaml                # скорости и геометрия фигур
 │   └── launch/trajectory_generator.launch.xml
-└── abb_work_cell_panel/                  # C++, плагин rviz_common::Panel (Qt5)
-    ├── src/work_cell_panel.cpp           # кнопки → /work_cell/<service>, подписка на статус
-    └── plugin_description.xml
+├── abb_work_cell_panel/                  # C++, плагин rviz_common::Panel (Qt5)
+│   ├── src/work_cell_panel.cpp           # кнопки → /work_cell/<service>, подписка на статус
+│   └── plugin_description.xml
+└── boxes_interfaces/                     # типы интерфейса BOXes по manipulator_manual.md §9.4
+    ├── move_to_pose_interface/           # MoveToPosePlanner, action MoveBy*/MoveTo*/Execute
+    ├── manipulator_msgs/                 # RobotState, RobotMode, PoseRPY, TwistModeCK, ComputeIkPreview
+    └── box_msgs/                         # CanDeviceState, BoxRecoverMotor, SetHomingMode
 docker/moveit_stack/
 ├── docker-compose.yml                    # три сервиса, host network, CycloneDDS
-├── hardware.Dockerfile                   # abb, description, bringup
-├── moveit.Dockerfile                     # abb, description, moveit_config, work_cell_panel
-└── trajectory.Dockerfile                 # abb_trajectory_generator
+├── hardware.Dockerfile                   # abb, description, bringup, boxes_interfaces
+├── moveit.Dockerfile                     # abb, description, moveit_config, work_cell_panel, boxes_interfaces
+└── trajectory.Dockerfile                 # abb_trajectory_generator, boxes_interfaces
 ```
 
 Граф зависимостей сборки: `abb_irb1600_bringup` и `abb_irb1600_moveit_config` зависят от
 `abb_irb1600_description` (а он от `abb_irb1600_support`); `abb_irb1600_moveit_config` зависит
 от `abb_work_cell_panel` (exec_depend), поэтому `--packages-up-to abb_irb1600_moveit_config`
 собирает и панель. `abb_trajectory_generator` от остальных пакетов workspace не зависит: он
-использует только сообщения MoveIt (`moveit_msgs`), а не его библиотеки.
+использует только сообщения MoveIt (`moveit_msgs`), а не его библиотеки. Пакеты
+`boxes_interfaces/*` зависят только от стандартных сообщений (`moveit_msgs`, `trajectory_msgs`,
+`action_msgs`, `geometry_msgs`) и собираются во всех трёх образах.
+
+Имена пакетов и типов в `boxes_interfaces` — как у реальной системы BOXes: программа, написанная
+под симулятор, должна без правок работать с ней. Типы восстановлены по мануалу, оригиналов из
+`box_ws` нет. Типы, которые мануал не описывает (`tf_stuff/srv/*`,
+`manipulator_msgs/JointModeCommand`, константы `RobotMode`), в код не добавлены: их черновики и
+TODO — в [future_works.md](future_works.md).
 
 ## 2. Рантайм: узлы и интерфейсы
 
@@ -151,8 +176,8 @@ docker/moveit_stack/
   конфигурации, и `joint_6` не накручивается.
 - **`revolute_jump_threshold = 0.3`** в декартовом пути отсекает перевороты суставов между
   соседними точками (5 мм шага не могут дать скачок больше 0.3 рад).
-- **Остановка.** В Humble одна отмена `/execute_trajectory` робота не останавливает, нужен
-  `"stop"` в `/trajectory_execution_event` (так делает `MoveGroupInterface::stop`).
+- **Остановка.** Одна отмена `/execute_trajectory` робота не останавливает (проверено на
+  Humble), нужен `"stop"` в `/trajectory_execution_event` (так делает `MoveGroupInterface::stop`).
 - `start_state.is_diff = True` и пустые diff'ы сцены означают «текущее состояние и текущая
   сцена», включая прикреплённый инструмент.
 
@@ -298,6 +323,7 @@ SRDF.
 | id объектов сцены | `work_cell_node.world_object_ids()`: по ним чистится сцена при перезапуске; новый объект нужно добавить туда |
 | RMW CycloneDDS, `ROS_DOMAIN_ID` | все сервисы `docker-compose.yml` и локальные терминалы |
 | Состав пакетов в образе | `COPY` в `*.Dockerfile`: новый пакет или зависимость надо добавить в нужный Dockerfile |
+| Типы интерфейса BOXes | `boxes_interfaces/*` и оригиналы в `box_ws`: имена пакетов, типов, полей и порядок полей ([future_works.md](future_works.md)) |
 
 ## 8. Цикл разработки и проверка
 
@@ -312,6 +338,7 @@ SRDF.
 | SRDF, конфиги MoveIt, `moveit.rviz`, `abb_work_cell_panel` | `docker compose up -d --build moveit` |
 | `ros2_controllers.yaml`, `hardware.launch.xml` | `docker compose up -d --build hardware` |
 | URDF / xacro / `initial_positions.yaml` | `hardware` и `moveit` (оба копируют `abb_irb1600_description`) |
+| `boxes_interfaces/*` | все три сервиса: `docker compose up -d --build` |
 | Dockerfile или apt-зависимости | соответствующий сервис с `--build` |
 
 `trajectory` можно перезапускать отдельно, не трогая `move_group`: при старте `work_cell`
@@ -350,6 +377,15 @@ ros2 topic pub --once /figure_type std_msgs/msg/String "{data: circle}"
 3. Для изменений движения: в RViz нет переворотов запястья и рывков, след лежит на поверхности.
 4. Python: `python3 -m py_compile` изменённых файлов; C++ панели собирается без предупреждений
    (`-Wall -Wextra -Wpedantic`).
+5. Для изменений в `boxes_interfaces`: в каждом образе есть все типы, а `ros2 interface show`
+   совпадает с §9.4 мануала:
+
+   ```bash
+   docker run --rm abb_trajectory bash -c '. install/setup.sh && ros2 interface list' \
+     | grep -E 'move_to_pose_interface|manipulator_msgs|box_msgs'     # 17 типов
+   docker run --rm abb_trajectory bash -c \
+     '. install/setup.sh && ros2 interface show move_to_pose_interface/action/MoveByJoints'
+   ```
 
 Известные безвредные сообщения: `libGL error: ... nouveau` в RViz,
 `Action server: /recognize_objects not available` (MotionPlanning), `SEVERE WARNING ...
@@ -382,6 +418,12 @@ InteractiveMarkerDisplay` (class_loader), `ResourceManager has already loaded an
 **Геометрия ячейки.** Только `cell_layout.py`. После изменения проверить захват обоих
 инструментов (контактные участки не проверяются на столкновения) и обе программы.
 
+**Тип интерфейса BOXes.** Имя пакета, типа и полей берутся из мануала или оригинала `box_ws`, без
+переименований: имя пакета входит в имя типа. Файл — в `msg/`, `srv/` или `action/` пакета и в
+`rosidl_generate_interfaces` его `CMakeLists.txt`; зависимость от другого пакета сообщений — в
+`DEPENDENCIES` и `package.xml`. Тип из [future_works.md](future_works.md) переносится в код только
+после того, как его описание подтвердили разработчики BOXes; пункт TODO при этом удаляется.
+
 **Реальный робот.** Драйвер — плагин `hardware_interface::SystemInterface` с контрактом из
 §7. Пакет добавить в `hardware.Dockerfile`, `<param>` драйвера — в `<hardware>` в
 `irb1600.ros2_control.xacro`, запуск `HARDWARE_PLUGIN=<pkg>/<System> docker compose up`. Перед
@@ -394,7 +436,7 @@ InteractiveMarkerDisplay` (class_loader), `ResourceManager has already loaded an
   однопоточного executor'а. Только через рабочий поток (`submit` / `threading.Thread`).
 - **Цель-поза для OMPL** — перевороты запястья. Используйте `move_to_pose` с `seed`
   (`ik_seed`) или суставную цель.
-- **Отмена action без `"stop"`** робота в Humble не останавливает.
+- **Отмена action без `"stop"`** робота не останавливает (проверено на Humble).
 - **Stamp у маркеров в `tool0`** — мерцание.
 - **`avoid_collisions=False`** выключает проверку на всём декартовом участке, а не только в
   точке контакта; держите такие участки короткими и вертикальными.
@@ -402,6 +444,11 @@ InteractiveMarkerDisplay` (class_loader), `ResourceManager has already loaded an
   уводить робот не туда, где он стартует.
 - **`work_cell` ждёт `move_group` 30 с.** Если он не успел, состояние `ошибка: move_group
   недоступен` и ячейки в сцене нет — нужен `docker compose restart trajectory`.
+- **`*/` в комментариях `.msg` / `.srv` / `.action`.** Комментарии попадают в сгенерированный
+  C-заголовок внутри `/* ... */`, и `*/` (например, в `/move_to_pose/*/plan`) ломает сборку.
+- **Типы BOXes восстановлены по мануалу.** Если имя, тип или порядок полей не совпадут с
+  `box_ws`, программа, отлаженная на симуляторе, не будет работать с реальной системой (в Jazzy по
+  описанию типа считается хэш).
 - **Скорости.** `joint_limits.yaml` задаёт scaling по умолчанию 0.1, но `work_cell` и генератор
   передают свои (`params.yaml`: 0.2 для свободных движений, 0.05 для обработки, 0.1 для фигур).
 

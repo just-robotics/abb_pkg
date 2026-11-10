@@ -1,0 +1,8 @@
+# Execute a plan made by a plan action of /move_to_pose. Cancelling the goal stops the robot.
+
+string uuid               # from the plan result; a plan not executed within 180 s is dropped
+---
+string error_string
+moveit_msgs/MoveItErrorCodes error_code   # val: 1 = SUCCESS, negative = error
+---
+action_msgs/GoalStatus status

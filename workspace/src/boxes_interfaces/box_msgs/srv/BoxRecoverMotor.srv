@@ -1,0 +1,6 @@
+# /recover_motor: same as /boxes_prefix/reset, all drives are recovered.
+
+string joint_name   # ignored
+---
+bool success
+string message

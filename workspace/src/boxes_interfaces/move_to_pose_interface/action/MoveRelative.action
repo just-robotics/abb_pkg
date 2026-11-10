@@ -1,0 +1,12 @@
+# Plan an offset of ee_link given in the TCP frame (pose_trans).
+
+move_to_pose_interface/MoveToPosePlanner planner
+geometry_msgs/Pose pose   # offset in the TCP frame; orientation {w: 1} = no rotation
+string ee_link            # tool point that comes to the goal
+---
+trajectory_msgs/JointTrajectory trajectory
+string uuid                               # pass to /move_to_pose/execute
+string error_string
+moveit_msgs/MoveItErrorCodes error_code   # val: 1 = SUCCESS, negative = error
+---
+action_msgs/GoalStatus status

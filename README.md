@@ -2,8 +2,8 @@
 
 **Maintainers:** Ksenia Vasilieva, Artem Kondratiev, Roman Eidelman
 
-ROS 2 (Humble) workspace for an **ABB IRB 1600-10/1.45** industrial robot. It has two independent
-ways to drive the robot:
+ROS 2 workspace for an **ABB IRB 1600-10/1.45** industrial robot (MoveIt stack on Jazzy, EGM stack
+on Humble). It has two independent ways to drive the robot:
 
 | Stack | What it is | Where |
 |-------|------------|-------|
@@ -17,6 +17,8 @@ Notes for coding agents and a detailed description of the pipeline: [AGENTS.md](
 ```
 abb_pkg/
 ├── AGENTS.md                      # architecture and pipeline for developers / agents
+├── manipulator_manual.md          # BOXes manipulator manual: the interface the simulation follows
+├── future_works.md                # BOXes interface types still unknown (TODO)
 ├── RAPID/                         # RAPID programs for the EGM stack
 ├── docker/
 │   ├── Dockerfile, *.sh           # EGM container (whole workspace)
@@ -28,6 +30,7 @@ abb_pkg/
     ├── abb_irb1600_moveit_config/ # SRDF, kinematics, OMPL, limits, move_group + RViz launch
     ├── abb_trajectory_generator/  # work_cell node, figure generator, MoveIt client (Python)
     ├── abb_work_cell_panel/       # RViz panel with the work cell buttons (C++)
+    ├── boxes_interfaces/          # BOXes message / service / action types (from the manual)
     ├── abb_pkg/, abb_libegm/, trac_ik/   # EGM stack
     └── ...                        # gripper, camera, teleop, RRT, LeRobot tools (see below)
 ```
@@ -39,6 +42,9 @@ abb_pkg/
 | `abb_irb1600_moveit_config` | MoveIt | `move_group.launch.xml`: `move_group` (OMPL, KDL) and RViz with the MotionPlanning and WorkCell panels |
 | `abb_trajectory_generator` | MoveIt | `work_cell` (tool change, milling, laser cutting) and `trajectory_generator` (circle / line), both talk to `move_group` over ROS interfaces only |
 | `abb_work_cell_panel` | MoveIt | RViz 2 panel plugin: buttons calling the `/work_cell/*` services, status line |
+| `move_to_pose_interface` | MoveIt | BOXes motion API types: `MoveToPosePlanner`, plan actions `MoveByJoints`, `MoveToNamePose`, `MoveByTF`, `MoveToPoint`, `MoveRelative`, `Execute` |
+| `manipulator_msgs` | MoveIt | BOXes telemetry and service types: `RobotState`, `JointState`, `RobotMode`, `PoseRPY`, `RPY`, `TwistModeCK`, `ComputeIkPreview` |
+| `box_msgs` | MoveIt | BOXes drive types: `CanDeviceState`, `BoxRecoverMotor`, `SetHomingMode` |
 | `abb_pkg` | EGM | EGM control node: UDP to the controller, Trac-IK, `joint_states`, `ee_pose`, `move_to_pose` action, RViz |
 | `abb_libegm` | EGM | C++ library for the EGM protocol (ABB option 689-1) |
 | `trac_ik` | EGM | Inverse kinematics library (drop-in replacement for KDL's IK) |
@@ -116,11 +122,11 @@ The sources are **copied** into the images at build time (no volume), so after c
 
 ### Run without Docker
 
-Dependencies (Humble):
+Dependencies (Jazzy):
 
 ```bash
-sudo apt install ros-humble-moveit ros-humble-ros2-control ros-humble-ros2-controllers \
-  ros-humble-xacro ros-humble-joint-state-publisher-gui ros-humble-rmw-cyclonedds-cpp
+sudo apt install ros-jazzy-moveit ros-jazzy-ros2-control ros-jazzy-ros2-controllers \
+  ros-jazzy-xacro ros-jazzy-joint-state-publisher-gui ros-jazzy-rmw-cyclonedds-cpp
 ```
 
 Build:

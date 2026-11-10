@@ -1,0 +1,8 @@
+# /boxes_prefix/compute_ik_preview: inverse kinematics without motion.
+
+geometry_msgs/Pose target_pose
+float64[] seed_joints     # initial guess, rad
+---
+bool success
+float64[] joints          # solution, rad
+string error_message

@@ -1,0 +1,6 @@
+# /set_homing: homing of the drives; /boxes_prefix/reset is needed after it.
+
+uint8 homing_method   # CiA-402 homing method, see the drive documentation
+---
+bool success
+string message
