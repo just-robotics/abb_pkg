@@ -1,0 +1,13 @@
+# Plan to joint angles (MoveJ in joints).
+
+move_to_pose_interface/MoveToPosePlanner planner
+float64[] joints          # rad
+string[] joint_names      # boxes_prefix/joint1 ... joint6
+string ee_link            # tool point that comes to the goal
+---
+trajectory_msgs/JointTrajectory trajectory
+string uuid                               # pass to /move_to_pose/execute
+string error_string
+moveit_msgs/MoveItErrorCodes error_code   # val: 1 = SUCCESS, negative = error
+---
+action_msgs/GoalStatus status

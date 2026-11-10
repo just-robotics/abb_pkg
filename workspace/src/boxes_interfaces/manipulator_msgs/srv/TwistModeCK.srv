@@ -1,0 +1,9 @@
+# /boxes_prefix/set_twist_frame: frame of the TCP jog commands.
+
+int8 BASE = 0
+int8 TOOL = 1
+
+int8 ck
+---
+bool success
+string message

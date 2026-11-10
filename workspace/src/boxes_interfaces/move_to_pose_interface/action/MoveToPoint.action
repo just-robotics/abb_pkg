@@ -1,0 +1,12 @@
+# Plan to a Cartesian pose of ee_link.
+
+move_to_pose_interface/MoveToPosePlanner planner
+geometry_msgs/Pose pose   # in world: position (m) + orientation (quaternion)
+string ee_link            # tool point that comes to the goal
+---
+trajectory_msgs/JointTrajectory trajectory
+string uuid                               # pass to /move_to_pose/execute
+string error_string
+moveit_msgs/MoveItErrorCodes error_code   # val: 1 = SUCCESS, negative = error
+---
+action_msgs/GoalStatus status
